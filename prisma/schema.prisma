@@ -1,0 +1,641 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum TenantStatus {
+  ACTIVE
+  SUSPENDED
+  ARCHIVED
+}
+
+enum MembershipRole {
+  OWNER
+  ADMIN
+  EDITOR
+  VIEWER
+}
+
+enum MembershipStatus {
+  ACTIVE
+  INVITED
+  SUSPENDED
+}
+
+enum WebsiteStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum DomainStatus {
+  PENDING
+  VERIFIED
+  DISABLED
+}
+
+enum DomainVerificationStatus {
+  PENDING
+  VERIFIED
+  FAILED
+}
+
+enum MediaStatus {
+  READY
+  ARCHIVED
+}
+
+enum MediaAccess {
+  PRIVATE
+  PUBLIC
+}
+
+enum PageStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum PageVersionStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum ContentTypeStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum ContentFieldStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum ContentFieldType {
+  TEXT
+  RICH_TEXT
+  NUMBER
+  BOOLEAN
+  DATE
+  IMAGE
+  URL
+}
+
+enum ContentEntryStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum ContentEntryVersionStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum ThemeStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum ThemeChangeType {
+  SETTINGS_UPDATED
+  FILE_UPDATED
+  FILE_CREATED
+  FILE_DELETED
+  THEME_CREATED
+  THEME_DUPLICATED
+  VERSION_CREATED
+  VERSION_RESTORED
+  THEME_PUBLISHED
+  THEME_RENAMED
+  THEME_DELETED
+}
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  email        String   @unique
+  displayName  String?
+  passwordHash String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  organizationMemberships OrganizationMember[]
+  tenantMemberships       TenantMember[]
+  sessions                Session[]
+  media                   Media[]
+  pageVersions            PageVersion[]
+  createdContentEntries   ContentEntry[]        @relation("ContentEntryCreatedBy")
+  updatedContentEntries   ContentEntry[]        @relation("ContentEntryUpdatedBy")
+  contentEntryVersions    ContentEntryVersion[]
+  themeVersions           ThemeVersion[]
+  themeDrafts             ThemeDraft[]
+  themeRevisions          ThemeRevision[]
+  themePublishRecords     ThemePublishRecord[]
+}
+
+model Organization {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships OrganizationMember[]
+  tenants     Tenant[]
+}
+
+model OrganizationMember {
+  id             String           @id @default(uuid()) @db.Uuid
+  organizationId String           @db.Uuid
+  userId         String           @db.Uuid
+  role           MembershipRole
+  status         MembershipStatus @default(ACTIVE)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+}
+
+model Tenant {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @db.Uuid
+  name           String
+  slug           String
+  status         TenantStatus @default(ACTIVE)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  members        TenantMember[]
+  websites       Website[]
+  domains        Domain[]
+  media          Media[]
+  pages          Page[]
+  contentTypes   ContentType[]
+  contentEntries ContentEntry[]
+  themePackages  ThemePackage[]
+  themeInstallations ThemeInstallation[]
+  themeVersions  ThemeVersion[]
+  themeDrafts    ThemeDraft[]
+  themeRevisions ThemeRevision[]
+  themePublishRecords ThemePublishRecord[]
+  auditLogs      AuditLog[]
+  activeSessions Session[]
+
+  @@unique([organizationId, slug])
+  @@index([organizationId])
+  @@index([status])
+}
+
+model Session {
+  id             String    @id @default(uuid()) @db.Uuid
+  userId         String    @db.Uuid
+  tokenHash      String    @unique
+  activeTenantId String?   @db.Uuid
+  expiresAt      DateTime
+  revokedAt      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  user         User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activeTenant Tenant? @relation(fields: [activeTenantId], references: [id], onDelete: SetNull)
+
+  @@index([userId, expiresAt])
+  @@index([activeTenantId])
+  @@index([expiresAt, revokedAt])
+}
+
+model TenantMember {
+  id        String           @id @default(uuid()) @db.Uuid
+  tenantId  String           @db.Uuid
+  userId    String           @db.Uuid
+  role      MembershipRole
+  status    MembershipStatus @default(ACTIVE)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, userId])
+  @@index([userId])
+  @@index([tenantId, status])
+}
+
+model Website {
+  id         String        @id @default(uuid()) @db.Uuid
+  tenantId   String        @db.Uuid
+  homePageId String?       @db.Uuid
+  name       String
+  slug       String
+  status     WebsiteStatus @default(DRAFT)
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  homePage       Page?          @relation("WebsiteHomePage", fields: [homePageId], references: [id], onDelete: SetNull)
+  domains        Domain[]
+  media          Media[]
+  pages          Page[]
+  contentTypes   ContentType[]
+  contentEntries ContentEntry[]
+  themes         WebsiteTheme[]
+  themeInstallations ThemeInstallation[]
+
+  @@unique([id, tenantId])
+  @@unique([tenantId, slug])
+  @@index([homePageId])
+  @@index([tenantId, status])
+}
+
+model WebsiteTheme {
+  id        String   @id @default(uuid()) @db.Uuid
+  websiteId String   @db.Uuid
+  name      String
+  tokens    Json     @db.JsonB
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  website Website @relation(fields: [websiteId], references: [id], onDelete: Cascade)
+
+  @@index([websiteId])
+}
+
+model ThemePackage {
+  id            String   @id @default(uuid()) @db.Uuid
+  tenantId      String?  @db.Uuid
+  source        String
+  name          String
+  description   String?
+  author        String?
+  category      String?
+  tags          Json     @default("[]") @db.JsonB
+  thumbnailKey  String?
+  manifest      Json     @db.JsonB
+  latestVersion String
+  engineVersion String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  tenant        Tenant?             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  installations ThemeInstallation[]
+
+  @@index([tenantId])
+  @@index([source])
+}
+
+model ThemeInstallation {
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @db.Uuid
+  websiteId       String   @db.Uuid
+  themePackageId  String   @db.Uuid
+  activeVersionId String?  @db.Uuid
+  currentDraftId  String?  @db.Uuid
+  name            String
+  description     String?
+  status          ThemeStatus @default(DRAFT)
+  settings        Json     @default("{}") @db.JsonB
+  metadata        Json     @default("{}") @db.JsonB
+  thumbnailKey    String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  website      Website      @relation(fields: [websiteId], references: [id], onDelete: Cascade)
+  themePackage ThemePackage @relation(fields: [themePackageId], references: [id], onDelete: Restrict)
+  activeVersion ThemeVersion? @relation("ActiveThemeVersion", fields: [activeVersionId], references: [id], onDelete: SetNull)
+  currentDraft  ThemeDraft?   @relation("CurrentThemeDraft", fields: [currentDraftId], references: [id], onDelete: SetNull)
+  drafts        ThemeDraft[]   @relation("ThemeInstallationDrafts")
+  versions      ThemeVersion[] @relation("ThemeInstallationVersions")
+  revisions     ThemeRevision[]
+  publishRecords ThemePublishRecord[]
+
+  @@index([tenantId, websiteId])
+  @@index([themePackageId])
+  @@index([status])
+}
+
+model ThemeVersion {
+  id             String   @id @default(uuid()) @db.Uuid
+  tenantId       String   @db.Uuid
+  installationId String   @db.Uuid
+  versionNumber  Int
+  status         ThemeStatus @default(DRAFT)
+  manifest       Json     @db.JsonB
+  settings       Json     @default("{}") @db.JsonB
+  fileManifest   Json     @default("{}") @db.JsonB
+  files          Json     @default("{}") @db.JsonB
+  storageKey     String?
+  checksum       String?
+  message        String?
+  createdBy      String   @db.Uuid
+  createdAt      DateTime @default(now())
+
+  tenant       Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  installation ThemeInstallation @relation("ThemeInstallationVersions", fields: [installationId], references: [id], onDelete: Cascade)
+  creator      User              @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+  activeForInstallations ThemeInstallation[] @relation("ActiveThemeVersion")
+  restoredDrafts ThemeDraft[]
+  revisions ThemeRevision[]
+  publishRecords ThemePublishRecord[]
+
+  @@unique([installationId, versionNumber])
+  @@index([tenantId, installationId])
+  @@index([status])
+}
+
+model ThemeDraft {
+  id             String   @id @default(uuid()) @db.Uuid
+  tenantId       String   @db.Uuid
+  installationId String   @db.Uuid
+  baseVersionId  String?  @db.Uuid
+  revision       Int      @default(0)
+  manifest       Json     @db.JsonB
+  settings       Json     @default("{}") @db.JsonB
+  fileManifest   Json     @default("{}") @db.JsonB
+  files          Json     @default("{}") @db.JsonB
+  storagePrefix  String?
+  updatedBy      String   @db.Uuid
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  tenant       Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  installation ThemeInstallation @relation("ThemeInstallationDrafts", fields: [installationId], references: [id], onDelete: Cascade)
+  baseVersion  ThemeVersion?     @relation(fields: [baseVersionId], references: [id], onDelete: SetNull)
+  updater      User              @relation(fields: [updatedBy], references: [id], onDelete: Restrict)
+  currentForInstallations ThemeInstallation[] @relation("CurrentThemeDraft")
+  revisions    ThemeRevision[]
+
+  @@index([tenantId, installationId])
+  @@index([baseVersionId])
+}
+
+model ThemeRevision {
+  id                String   @id @default(uuid()) @db.Uuid
+  tenantId          String   @db.Uuid
+  installationId    String   @db.Uuid
+  draftId           String?  @db.Uuid
+  versionId         String?  @db.Uuid
+  actorUserId       String   @db.Uuid
+  changeType        ThemeChangeType
+  message           String?
+  changedFilesCount Int      @default(0)
+  metadata          Json     @default("{}") @db.JsonB
+  createdAt         DateTime @default(now())
+
+  tenant       Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  installation ThemeInstallation @relation(fields: [installationId], references: [id], onDelete: Cascade)
+  draft        ThemeDraft?       @relation(fields: [draftId], references: [id], onDelete: SetNull)
+  version      ThemeVersion?     @relation(fields: [versionId], references: [id], onDelete: SetNull)
+  actor        User              @relation(fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, installationId, createdAt])
+  @@index([changeType])
+}
+
+model ThemePublishRecord {
+  id                String   @id @default(uuid()) @db.Uuid
+  tenantId          String   @db.Uuid
+  installationId    String   @db.Uuid
+  versionId         String   @db.Uuid
+  previousVersionId String?  @db.Uuid
+  publishedBy       String   @db.Uuid
+  createdAt         DateTime @default(now())
+
+  tenant       Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  installation ThemeInstallation @relation(fields: [installationId], references: [id], onDelete: Cascade)
+  version      ThemeVersion      @relation(fields: [versionId], references: [id], onDelete: Restrict)
+  publisher    User              @relation(fields: [publishedBy], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, installationId, createdAt])
+  @@index([versionId])
+}
+
+model Domain {
+  id                 String                   @id @default(uuid()) @db.Uuid
+  tenantId           String                   @db.Uuid
+  websiteId          String                   @db.Uuid
+  hostname           String
+  normalizedHostname String
+  status             DomainStatus             @default(PENDING)
+  isPrimary          Boolean                  @default(false)
+  verificationStatus DomainVerificationStatus @default(PENDING)
+  verificationToken  String
+  verifiedAt         DateTime?
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  website Website @relation(fields: [websiteId], references: [id], onDelete: Cascade)
+
+  @@unique([normalizedHostname])
+  @@index([tenantId, websiteId])
+  @@index([websiteId, isPrimary])
+  @@index([tenantId, status])
+  @@index([tenantId, verificationStatus])
+}
+
+model Media {
+  id               String      @id @default(uuid()) @db.Uuid
+  tenantId         String      @db.Uuid
+  websiteId        String?     @db.Uuid
+  createdBy        String      @db.Uuid
+  originalFilename String
+  filename         String
+  mimeType         String
+  sizeBytes        BigInt
+  storageKey       String
+  storageProvider  String
+  bucket           String
+  access           MediaAccess @default(PRIVATE)
+  width            Int?
+  height           Int?
+  status           MediaStatus @default(READY)
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  tenant  Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  website Website? @relation(fields: [websiteId], references: [id], onDelete: SetNull)
+  creator User     @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, storageKey])
+  @@index([tenantId, createdAt])
+  @@index([tenantId, mimeType])
+  @@index([tenantId, status])
+  @@index([tenantId, websiteId])
+  @@index([createdBy, createdAt])
+}
+
+model Page {
+  id                 String     @id @default(uuid()) @db.Uuid
+  tenantId           String     @db.Uuid
+  websiteId          String     @db.Uuid
+  parentId           String?    @db.Uuid
+  draftVersionId     String?    @db.Uuid
+  publishedVersionId String?    @db.Uuid
+  title              String
+  slug               String
+  seo                Json       @default("{}")
+  status             PageStatus @default(DRAFT)
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  tenant           Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  website          Website       @relation(fields: [websiteId], references: [id], onDelete: Cascade)
+  parent           Page?         @relation("PageHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children         Page[]        @relation("PageHierarchy")
+  versions         PageVersion[] @relation("PageVersions")
+  draftVersion     PageVersion?  @relation("PageDraftVersion", fields: [draftVersionId], references: [id], onDelete: SetNull)
+  publishedVersion PageVersion?  @relation("PagePublishedVersion", fields: [publishedVersionId], references: [id], onDelete: SetNull)
+  homepageFor      Website[]     @relation("WebsiteHomePage")
+
+  @@unique([id, tenantId])
+  @@unique([id, websiteId])
+  @@unique([websiteId, slug])
+  @@index([tenantId, websiteId])
+  @@index([tenantId, status])
+  @@index([websiteId, parentId])
+  @@index([draftVersionId])
+  @@index([publishedVersionId])
+}
+
+model PageVersion {
+  id            String            @id @default(uuid()) @db.Uuid
+  pageId        String            @db.Uuid
+  versionNumber Int
+  status        PageVersionStatus @default(DRAFT)
+  content       Json
+  createdBy     String            @db.Uuid
+  createdAt     DateTime          @default(now())
+
+  page              Page   @relation("PageVersions", fields: [pageId], references: [id], onDelete: Cascade)
+  creator           User   @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+  draftForPages     Page[] @relation("PageDraftVersion")
+  publishedForPages Page[] @relation("PagePublishedVersion")
+
+  @@unique([pageId, versionNumber])
+  @@index([pageId, status])
+  @@index([createdBy, createdAt])
+}
+
+model ContentType {
+  id          String            @id @default(uuid()) @db.Uuid
+  tenantId    String            @db.Uuid
+  websiteId   String            @db.Uuid
+  name        String
+  slug        String
+  description String?
+  status      ContentTypeStatus @default(ACTIVE)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  tenant  Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  website Website        @relation(fields: [websiteId], references: [id], onDelete: Cascade)
+  fields  ContentField[]
+  entries ContentEntry[]
+
+  @@unique([id, tenantId])
+  @@unique([id, websiteId])
+  @@unique([websiteId, slug])
+  @@index([tenantId, websiteId])
+  @@index([tenantId, status])
+  @@index([websiteId, status])
+}
+
+model ContentField {
+  id            String             @id @default(uuid()) @db.Uuid
+  contentTypeId String             @db.Uuid
+  name          String
+  slug          String
+  type          ContentFieldType
+  required      Boolean            @default(false)
+  position      Int
+  configuration Json?
+  status        ContentFieldStatus @default(ACTIVE)
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  contentType ContentType @relation(fields: [contentTypeId], references: [id], onDelete: Cascade)
+
+  @@unique([contentTypeId, slug])
+  @@unique([contentTypeId, position])
+  @@index([contentTypeId, status])
+}
+
+model ContentEntry {
+  id                 String             @id @default(uuid()) @db.Uuid
+  tenantId           String             @db.Uuid
+  websiteId          String             @db.Uuid
+  contentTypeId      String             @db.Uuid
+  draftVersionId     String?            @db.Uuid
+  publishedVersionId String?            @db.Uuid
+  status             ContentEntryStatus @default(DRAFT)
+  data               Json
+  createdBy          String             @db.Uuid
+  updatedBy          String             @db.Uuid
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  tenant           Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  website          Website               @relation(fields: [websiteId], references: [id], onDelete: Cascade)
+  contentType      ContentType           @relation(fields: [contentTypeId], references: [id], onDelete: Cascade)
+  creator          User                  @relation("ContentEntryCreatedBy", fields: [createdBy], references: [id], onDelete: Restrict)
+  updater          User                  @relation("ContentEntryUpdatedBy", fields: [updatedBy], references: [id], onDelete: Restrict)
+  versions         ContentEntryVersion[] @relation("ContentEntryVersions")
+  draftVersion     ContentEntryVersion?  @relation("ContentEntryDraftVersion", fields: [draftVersionId], references: [id], onDelete: SetNull)
+  publishedVersion ContentEntryVersion?  @relation("ContentEntryPublishedVersion", fields: [publishedVersionId], references: [id], onDelete: SetNull)
+
+  @@unique([id, tenantId])
+  @@unique([id, contentTypeId])
+  @@index([tenantId, websiteId])
+  @@index([tenantId, status])
+  @@index([contentTypeId, status])
+  @@index([draftVersionId])
+  @@index([publishedVersionId])
+  @@index([updatedAt])
+}
+
+model ContentEntryVersion {
+  id            String                    @id @default(uuid()) @db.Uuid
+  entryId       String                    @db.Uuid
+  versionNumber Int
+  status        ContentEntryVersionStatus @default(DRAFT)
+  data          Json
+  createdBy     String                    @db.Uuid
+  createdAt     DateTime                  @default(now())
+
+  entry               ContentEntry   @relation("ContentEntryVersions", fields: [entryId], references: [id], onDelete: Cascade)
+  creator             User           @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+  draftForEntries     ContentEntry[] @relation("ContentEntryDraftVersion")
+  publishedForEntries ContentEntry[] @relation("ContentEntryPublishedVersion")
+
+  @@unique([entryId, versionNumber])
+  @@index([entryId, status])
+  @@index([createdBy, createdAt])
+}
+
+model AuditLog {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String?  @db.Uuid
+  actorUserId String?  @db.Uuid
+  action      String
+  resource    String
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, createdAt])
+  @@index([actorUserId, createdAt])
+}

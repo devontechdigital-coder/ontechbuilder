@@ -1,0 +1,27 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": ".",
+    "declaration": true,
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "isolatedModules": false,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"],
+      "@/core/*": ["src/core/*"],
+      "@/identity/*": ["src/identity/*"],
+      "@/websites/*": ["src/websites/*"],
+      "@/content/*": ["src/content/*"],
+      "@/builder/*": ["src/builder/*"],
+      "@/marketing/*": ["src/marketing/*"],
+      "@/extensions/*": ["src/extensions/*"],
+      "@/agency/*": ["src/agency/*"]
+    },
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts"]
+}

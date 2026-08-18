@@ -1,0 +1,232 @@
+import { Body, Controller, Get, Inject, Param, Patch, Post, Query, Req, UseGuards } from "@nestjs/common";
+import { MembershipRole } from "../../core/database/database.js";
+import { AuthGuard } from "../../identity/auth/auth.guard.js";
+import { getActiveTenant, getAuthenticatedUser } from "../../identity/auth/auth-context.js";
+import { RequireRole } from "../../identity/auth/roles.decorator.js";
+import { RolesGuard } from "../../identity/auth/roles.guard.js";
+import { TenantContextGuard } from "../../identity/auth/tenant-context.guard.js";
+import type { AuthenticatedRequest } from "../../identity/auth/auth.types.js";
+import { PagesService } from "./pages.service.js";
+
+@Controller()
+@UseGuards(AuthGuard, TenantContextGuard, RolesGuard)
+export class PagesController {
+  constructor(@Inject(PagesService) private readonly pages: PagesService) {}
+
+  @Post("websites/:websiteId/pages")
+  @RequireRole(MembershipRole.EDITOR)
+  createPage(
+    @Req() request: AuthenticatedRequest,
+    @Param("websiteId") websiteId: string,
+    @Body() body: unknown,
+  ) {
+    const user = getAuthenticatedUser(request);
+    const activeTenant = getActiveTenant(request);
+    const input = body as Record<string, unknown>;
+
+    return this.pages.createPage({
+      actorUserId: user.id,
+      tenantId: activeTenant.id,
+      websiteId,
+      title: input.title,
+      slug: input.slug,
+      parentId: input.parentId,
+      isHomePage: input.isHomePage,
+    });
+  }
+
+  @Get("websites/:websiteId/pages")
+  @RequireRole(MembershipRole.VIEWER)
+  listPages(@Req() request: AuthenticatedRequest, @Param("websiteId") websiteId: string) {
+    const user = getAuthenticatedUser(request);
+    const activeTenant = getActiveTenant(request);
+    return this.pages.listPages({ actorUserId: user.id, tenantId: activeTenant.id, websiteId });
+  }
+
+  @Get("websites/:websiteId/pages/tree")
+  @RequireRole(MembershipRole.VIEWER)
+  getPageTree(@Req() request: AuthenticatedRequest, @Param("websiteId") websiteId: string) {
+    const user = getAuthenticatedUser(request);
+    const activeTenant = getActiveTenant(request);
+    return this.pages.getPageTree({ actorUserId: user.id, tenantId: activeTenant.id, websiteId });
+  }
+
+  @Get("websites/:websiteId/pages/resolve")
+  @RequireRole(MembershipRole.VIEWER)
+  resolvePagePath(
+    @Req() request: AuthenticatedRequest,
+    @Param("websiteId") websiteId: string,
+    @Query("path") path?: string,
+  ) {
+    const user = getAuthenticatedUser(request);
+    const activeTenant = getActiveTenant(request);
+    return this.pages.resolvePagePath(user.id, activeTenant.id, websiteId, path);
+  }
+
+  @Get("pages/:pageId")
+  @RequireRole(MembershipRole.VIEWER)
+  getPage(@Req() request: AuthenticatedRequest, @Param("pageId") pageId: string) {
+    const user = getAuthenticatedUser(request);
+    const activeTenant = getActiveTenant(request);
+    return this.pages.getPage(user.id, activeTenant.id, pageId);
+  }
+
+  @Patch("pages/:pageId")
+  @RequireRole(MembershipRole.EDITOR)
+  updatePage(
+    @Req() request: AuthenticatedRequest,
+    @Param("pageId") pageId: string,
+    @Body() body: unknown,
+  ) {
+    const user = getAuthenticatedUser(request);
+    const activeTenant = getActiveTenant(request);
+    const input = body as Record<string, unknown>;
+
+    return this.pages.updatePage({
+      actorUserId: user.id,
+      tenantId: activeTenant.id,
+      pageId,
+      title: input.title,
+      slug: input.slug,
+      parentId: input.parentId,
+      isHomePage: input.isHomePage,
+    });
+  }
+
+  @Get("pages/:pageId/seo")
+  @RequireRole(MembershipRole.VIEWER)
+  getSeo(@Req() request: AuthenticatedRequest, @Param("pageId") pageId: string) {
+    const user = getAuthenticatedUser(request);
+    const activeTenant = getActiveTenant(request);
+    return this.pages.getSeo(user.id, activeTenant.id, pageId);
+  }
+
+  @Patch("pages/:pageId/seo")
+  @RequireRole(MembershipRole.EDITOR)
+  updateSeo(
+    @Req() request: AuthenticatedRequest,
+    @Param("pageId") pageId: string,
+    @Body() body: unknown,
+  ) {
+    const user = getAuthenticatedUser(request);
+    const activeTenant = getActiveTenant(request);
+    const input = body as Record<string, unknown>;
+
+    return this.pages.updateSeo({
+      actorUserId: user.id,
+      tenantId: activeTenant.id,
+      pageId,
+      seo: input.seo,
+    });
+  }
+
+  @Post("pages/:pageId/archive")
+  @RequireRole(MembershipRole.EDITOR)
+  archivePage(@Req() request: AuthenticatedRequest, @Param("pageId") pageId: string) {
+    const user = getAuthenticatedUser(request);
+    const activeTenant = getActiveTenant(request);
+    return this.pages.archivePage(user.id, activeTenant.id, pageId);
+  }
+
+  @Post("pages/:pageId/versions")
+  @RequireRole(MembershipRole.EDITOR)
+  createVersion(
+    @Req() request: AuthenticatedRequest,
+    @Param("pageId") pageId: string,
+    @Body() body: unknown,
+  ) {
+    const user = getAuthenticatedUser(request);
+    const activeTenant = getActiveTenant(request);
+    const input = body as Record<string, unknown>;
+    return this.pages.createVersion({
+      actorUserId: user.id,
+      tenantId: activeTenant.id,
+      pageId,
+      content: input.content,
+    });
+  }
+
+  @Get("pages/:pageId/versions")
+  @RequireRole(MembershipRole.VIEWER)
+  listVersions(
+    @Req() request: AuthenticatedRequest,
+    @Param("pageId") pageId: string,
+    @Query("limit") limit?: string,
+    @Query("cursor") cursor?: string,
+  ) {
+    const user = getAuthenticatedUser(request);
+    const activeTenant = getActiveTenant(request);
+    return this.pages.listVersions({
+      actorUserId: user.id,
+      tenantId: activeTenant.id,
+      pageId,
+      limit,
+      cursor,
+    });
+  }
+
+  @Get("pages/:pageId/versions/draft")
+  @RequireRole(MembershipRole.VIEWER)
+  getDraft(@Req() request: AuthenticatedRequest, @Param("pageId") pageId: string) {
+    const user = getAuthenticatedUser(request);
+    const activeTenant = getActiveTenant(request);
+    return this.pages.getCurrentDraft(user.id, activeTenant.id, pageId);
+  }
+
+  @Get("pages/:pageId/versions/published")
+  @RequireRole(MembershipRole.VIEWER)
+  getPublished(@Req() request: AuthenticatedRequest, @Param("pageId") pageId: string) {
+    const user = getAuthenticatedUser(request);
+    const activeTenant = getActiveTenant(request);
+    return this.pages.getCurrentPublished(user.id, activeTenant.id, pageId);
+  }
+
+  @Get("pages/:pageId/versions/:versionId")
+  @RequireRole(MembershipRole.VIEWER)
+  getVersion(
+    @Req() request: AuthenticatedRequest,
+    @Param("pageId") pageId: string,
+    @Param("versionId") versionId: string,
+  ) {
+    const user = getAuthenticatedUser(request);
+    const activeTenant = getActiveTenant(request);
+    return this.pages.getVersion(user.id, activeTenant.id, pageId, versionId);
+  }
+
+  @Patch("pages/:pageId/versions/:versionId")
+  @RequireRole(MembershipRole.EDITOR)
+  updateVersion(
+    @Req() request: AuthenticatedRequest,
+    @Param("pageId") pageId: string,
+    @Param("versionId") versionId: string,
+    @Body() body: unknown,
+  ) {
+    const user = getAuthenticatedUser(request);
+    const activeTenant = getActiveTenant(request);
+    const input = body as Record<string, unknown>;
+    return this.pages.updateDraftVersion({
+      actorUserId: user.id,
+      tenantId: activeTenant.id,
+      pageId,
+      versionId,
+      content: input.content,
+    });
+  }
+
+  @Post("pages/:pageId/versions/:versionId/publish")
+  @RequireRole(MembershipRole.ADMIN)
+  publishVersion(
+    @Req() request: AuthenticatedRequest,
+    @Param("pageId") pageId: string,
+    @Param("versionId") versionId: string,
+  ) {
+    const user = getAuthenticatedUser(request);
+    const activeTenant = getActiveTenant(request);
+    return this.pages.publishVersion({
+      actorUserId: user.id,
+      tenantId: activeTenant.id,
+      pageId,
+      versionId,
+    });
+  }
+}

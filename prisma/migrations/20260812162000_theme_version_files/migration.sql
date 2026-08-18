@@ -1,0 +1,1 @@
+ALTER TABLE "ThemeVersion" ADD COLUMN "files" JSONB NOT NULL DEFAULT '{}';
