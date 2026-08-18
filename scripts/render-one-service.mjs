@@ -1,6 +1,7 @@
 import { createServer, request as createHttpRequest } from "node:http";
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
+import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -10,6 +11,8 @@ const publicPort = Number.parseInt(process.env.PORT ?? "10000", 10);
 const apiPort = Number.parseInt(process.env.INTERNAL_API_PORT ?? "4100", 10);
 const webPort = Number.parseInt(process.env.INTERNAL_WEB_PORT ?? "4101", 10);
 const rendererPort = Number.parseInt(process.env.INTERNAL_RENDERER_PORT ?? "4102", 10);
+const webDirectory = resolveNextBuildDirectory("web", join(rootDirectory, "apps", "web"));
+const rendererDirectory = resolveNextBuildDirectory("renderer", join(rootDirectory, "apps", "renderer"));
 
 const nextBin = require.resolve("next/dist/bin/next", {
   paths: [join(rootDirectory, "apps", "web")],
@@ -22,10 +25,10 @@ const children = [
   startProcess("web", process.execPath, [nextBin, "start", "-p", String(webPort)], {
     PORT: String(webPort),
     NEXT_PUBLIC_API_BASE_URL: process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api",
-  }),
+  }, webDirectory),
   startProcess("renderer", process.execPath, [nextBin, "start", "-p", String(rendererPort)], {
     PORT: String(rendererPort),
-  }, join(rootDirectory, "apps", "renderer")),
+  }, rendererDirectory),
 ];
 
 const server = createServer((request, response) => {
@@ -69,6 +72,7 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
 }
 
 function startProcess(name, command, args, env, cwd = rootDirectory) {
+  console.log(`[render] starting ${name} in ${cwd}`);
   const child = spawn(command, args, {
     cwd,
     env: {
@@ -92,6 +96,21 @@ function startProcess(name, command, args, env, cwd = rootDirectory) {
   });
 
   return child;
+}
+
+function resolveNextBuildDirectory(name, appDirectory) {
+  if (existsSync(join(appDirectory, ".next", "BUILD_ID"))) {
+    return appDirectory;
+  }
+
+  const rootBuildId = join(rootDirectory, ".next", "BUILD_ID");
+  if (existsSync(rootBuildId)) {
+    console.warn(`[render] ${name} build was found at repo root. Check Render Root Directory/Build Command.`);
+    return rootDirectory;
+  }
+
+  console.warn(`[render] ${name} build not found at ${join(appDirectory, ".next", "BUILD_ID")}`);
+  return appDirectory;
 }
 
 function proxyRequest(incomingRequest, outgoingResponse, targetPort, requestUrl) {
