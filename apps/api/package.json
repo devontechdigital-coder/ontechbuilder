@@ -3,9 +3,10 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "main": "dist/main.js",
+    "main": "dist/main.js",
   "scripts": {
     "dev": "tsx watch --clear-screen=false src/main.ts",
+    "prebuild": "corepack pnpm --workspace-root db:generate",
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/main.js",
     "lint": "eslint .",
