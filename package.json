@@ -12,6 +12,8 @@
     "dev:renderer": "corepack pnpm --filter renderer dev",
     "dev:api": "corepack pnpm --filter api dev",
     "build": "corepack pnpm -r --if-present build",
+    "build:render-one": "corepack pnpm db:generate && corepack pnpm --filter api build && corepack pnpm --filter web build && corepack pnpm --filter renderer build",
+    "start:render-one": "node scripts/render-one-service.mjs",
     "lint": "corepack pnpm -r --if-present lint",
     "typecheck": "corepack pnpm -r --if-present typecheck",
     "test": "corepack pnpm -r --if-present test",

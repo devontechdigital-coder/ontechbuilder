@@ -1,5 +1,15 @@
 # Visual Builder Foundation
 
+> **Status: retired on the web app.** The `features/builder/**` node-tree
+> editor and its `app/builder/pages/[pageId]` shell described below have been
+> removed. That route now resolves the page's website + current theme
+> installation and hands off to the theme customizer
+> (`features/websites/customizer`, `app/websites/[id]/themes/[themeId]/customize`)
+> with the page preselected — pages no longer carry their own separate
+> document. The `apps/api/src/content/builder` persistence endpoints this
+> doc describes still exist untouched; this file is kept for that API
+> reference and as a historical record of the retired schema.
+
 The builder foundation is a structured document editor for page versions. It is intentionally small and does not implement a complete production builder.
 
 ## Architecture

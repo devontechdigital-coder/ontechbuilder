@@ -370,6 +370,7 @@ describe("DomainsService behavior inside WebsitesService", () => {
         callback({
           domain: {
             create: domainCreate,
+            findFirst: vi.fn().mockResolvedValue(null),
             updateMany,
           },
         }),
@@ -415,6 +416,107 @@ describe("DomainsService behavior inside WebsitesService", () => {
         isPrimary: false,
       }),
     ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it("rejects adding a second active domain to the same website", async () => {
+    const prisma = {
+      $transaction: vi.fn((callback) =>
+        callback({
+          domain: {
+            findFirst: vi.fn().mockResolvedValue({ id: "domain-existing" }),
+            updateMany: vi.fn(),
+            create: vi.fn(),
+          },
+        }),
+      ),
+    };
+    const service = new WebsitesService(prisma as never, createAccess() as never);
+
+    await expect(
+      service.createDomain({
+        actorUserId: "user-a",
+        tenantId: "tenant-a",
+        websiteId: "website-a",
+        hostname: "example.com",
+        isPrimary: true,
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it("verifies a domain only when DNS ownership and routing records match", async () => {
+    const update = vi.fn().mockResolvedValue({ id: "domain-a", verificationStatus: DomainVerificationStatus.VERIFIED });
+    const prisma = {
+      domain: {
+        findFirstOrThrow: vi.fn().mockResolvedValue({
+          id: "domain-a",
+          tenantId: "tenant-a",
+          hostname: "example.com",
+          verificationToken: "token-a",
+          website: { slug: "main-site" },
+        }),
+        update,
+      },
+    };
+    const dnsResolver = {
+      resolve4: vi.fn().mockResolvedValue([]),
+      resolveCname: vi.fn().mockResolvedValue(["main-site.stackbuilder.site."]),
+      resolveTxt: vi.fn().mockResolvedValue([["token-a"]]),
+    };
+    const service = new WebsitesService(prisma as never, createAccess() as never, dnsResolver);
+
+    await service.markDomainVerified("user-a", "tenant-a", "domain-a");
+
+    expect(dnsResolver.resolveTxt).toHaveBeenCalledWith("_stackbuilder.example.com");
+    expect(dnsResolver.resolveCname).toHaveBeenCalledWith("example.com");
+    expect(update).toHaveBeenCalledWith({
+      where: {
+        id: "domain-a",
+        tenantId: "tenant-a",
+      },
+      data: {
+        status: DomainStatus.VERIFIED,
+        verificationStatus: DomainVerificationStatus.VERIFIED,
+        verifiedAt: expect.any(Date),
+      },
+      select: expect.any(Object),
+    });
+  });
+
+  it("keeps a domain disconnected when DNS records do not match", async () => {
+    const update = vi.fn().mockResolvedValue({ id: "domain-a", verificationStatus: DomainVerificationStatus.FAILED });
+    const prisma = {
+      domain: {
+        findFirstOrThrow: vi.fn().mockResolvedValue({
+          id: "domain-a",
+          tenantId: "tenant-a",
+          hostname: "example.com",
+          verificationToken: "token-a",
+          website: { slug: "main-site" },
+        }),
+        update,
+      },
+    };
+    const dnsResolver = {
+      resolve4: vi.fn().mockResolvedValue([]),
+      resolveCname: vi.fn().mockResolvedValue(["other.stackbuilder.site"]),
+      resolveTxt: vi.fn().mockResolvedValue([["wrong-token"]]),
+    };
+    const service = new WebsitesService(prisma as never, createAccess() as never, dnsResolver);
+
+    await service.markDomainVerified("user-a", "tenant-a", "domain-a");
+
+    expect(update).toHaveBeenCalledWith({
+      where: {
+        id: "domain-a",
+        tenantId: "tenant-a",
+      },
+      data: {
+        status: DomainStatus.PENDING,
+        verificationStatus: DomainVerificationStatus.FAILED,
+        verifiedAt: null,
+      },
+      select: expect.any(Object),
+    });
   });
 
   it("sets the primary domain transactionally", async () => {

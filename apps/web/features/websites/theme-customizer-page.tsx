@@ -51,7 +51,14 @@ interface MeResponse {
   activeTenant: ActiveTenant | null;
 }
 
-export function ThemeCustomizerPage({ params }: { params: Promise<{ id: string; themeId: string }> }) {
+export function ThemeCustomizerPage({
+  params,
+  initialPageId,
+}: {
+  params: Promise<{ id: string; themeId: string }>;
+  /** Preselects this real page (e.g. the page-builder route hands off a specific page) instead of defaulting to the first page option. */
+  initialPageId?: string;
+}) {
   const { id: websiteId, themeId } = use(params);
   const router = useRouter();
   const [me, setMe] = useState<MeResponse | null>(null);
@@ -135,10 +142,10 @@ export function ThemeCustomizerPage({ params }: { params: Promise<{ id: string; 
   }, [groups, selected]);
 
   useEffect(() => {
-    if (!selectedPageId && pageOptions[0]) {
-      setSelectedPageId(pageOptions[0].id);
-    }
-  }, [pageOptions, selectedPageId]);
+    if (selectedPageId || !pageOptions.length) return;
+    const initial = initialPageId ? pageOptions.find((option) => option.id === initialPageId) : undefined;
+    setSelectedPageId((initial ?? pageOptions[0]!).id);
+  }, [initialPageId, pageOptions, selectedPageId]);
 
   function changePage(nextPageId: string) {
     setSelectedPageId(nextPageId);

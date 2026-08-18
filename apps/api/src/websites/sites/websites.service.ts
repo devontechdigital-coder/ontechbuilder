@@ -4,8 +4,10 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  Optional,
 } from "@nestjs/common";
 import { randomBytes } from "node:crypto";
+import { resolve4, resolveCname, resolveTxt } from "node:dns/promises";
 import {
   DomainStatus,
   DomainVerificationStatus,
@@ -70,11 +72,32 @@ interface UpdateThemeInput {
   tokens: unknown;
 }
 
+interface DomainDnsResolver {
+  resolve4(hostname: string): Promise<string[]>;
+  resolveCname(hostname: string): Promise<string[]>;
+  resolveTxt(hostname: string): Promise<string[][]>;
+}
+
+interface DomainDnsSettings {
+  cnameTargetHostname?: string;
+  aRecordIp?: string;
+}
+
+const nodeDnsResolver: DomainDnsResolver = {
+  resolve4,
+  resolveCname,
+  resolveTxt,
+};
+
 @Injectable()
 export class WebsitesService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(TenantAccessService) private readonly access: TenantAccessService,
+    @Optional()
+    private readonly dnsResolver: DomainDnsResolver = nodeDnsResolver,
+    @Optional()
+    private readonly dnsSettings: DomainDnsSettings = {},
   ) {}
 
   async createWebsite(input: CreateWebsiteInput) {
@@ -259,6 +282,23 @@ export class WebsitesService {
 
     try {
       return await this.prisma.$transaction(async (tx) => {
+        const existingActiveDomain = await tx.domain.findFirst({
+          where: {
+            tenantId: input.tenantId,
+            websiteId: input.websiteId,
+            status: {
+              not: DomainStatus.DISABLED,
+            },
+          },
+          select: {
+            id: true,
+          },
+        });
+
+        if (existingActiveDomain) {
+          throw new ConflictException("Website already has a custom domain");
+        }
+
         if (isPrimary) {
           await tx.domain.updateMany({
             where: {
@@ -408,15 +448,37 @@ export class WebsitesService {
   async markDomainVerified(actorUserId: string, tenantId: string, domainId: string) {
     await this.access.assertDomainAccess(actorUserId, tenantId, domainId);
 
+    const domain = await this.prisma.domain.findFirstOrThrow({
+      where: {
+        id: domainId,
+        tenantId,
+        status: {
+          not: DomainStatus.DISABLED,
+        },
+      },
+      select: {
+        id: true,
+        tenantId: true,
+        hostname: true,
+        verificationToken: true,
+        website: {
+          select: {
+            slug: true,
+          },
+        },
+      },
+    });
+    const dnsCheck = await this.checkDomainDns(domain);
+
     return this.prisma.domain.update({
       where: {
         id: domainId,
         tenantId,
       },
       data: {
-        status: DomainStatus.VERIFIED,
-        verificationStatus: DomainVerificationStatus.VERIFIED,
-        verifiedAt: new Date(),
+        status: dnsCheck.connected ? DomainStatus.VERIFIED : DomainStatus.PENDING,
+        verificationStatus: dnsCheck.connected ? DomainVerificationStatus.VERIFIED : DomainVerificationStatus.FAILED,
+        verifiedAt: dnsCheck.connected ? new Date() : null,
       },
       select: domainSelect,
     });
@@ -460,6 +522,32 @@ export class WebsitesService {
       },
       select: themeSelect,
     });
+  }
+
+  private async checkDomainDns(domain: {
+    hostname: string;
+    verificationToken: string;
+    website: { slug: string };
+  }) {
+    const verificationName = `_stackbuilder.${domain.hostname}`;
+    const expectedCname = normalizeDnsHostname(
+      this.dnsSettings.cnameTargetHostname ?? process.env.CUSTOM_DOMAIN_CNAME_TARGET ?? `${domain.website.slug}.stackbuilder.site`,
+    );
+    const expectedARecordIp = this.dnsSettings.aRecordIp ?? process.env.CUSTOM_DOMAIN_A_RECORD_IP;
+
+    const [txtRecords, cnameRecords, aRecords] = await Promise.all([
+      resolveDns(() => this.dnsResolver.resolveTxt(verificationName)),
+      resolveDns(() => this.dnsResolver.resolveCname(domain.hostname)),
+      expectedARecordIp ? resolveDns(() => this.dnsResolver.resolve4(domain.hostname)) : Promise.resolve([]),
+    ]);
+    const flattenedTxtRecords = txtRecords.map((record) => record.join(""));
+    const hasOwnershipToken = flattenedTxtRecords.includes(domain.verificationToken);
+    const hasCnameTarget = cnameRecords.map(normalizeDnsHostname).includes(expectedCname);
+    const hasARecordTarget = expectedARecordIp ? aRecords.includes(expectedARecordIp) : false;
+
+    return {
+      connected: hasOwnershipToken && (hasCnameTarget || hasARecordTarget),
+    };
   }
 }
 
@@ -567,6 +655,18 @@ function pageResult<T extends { id: string }>(items: T[], limit: number) {
 
 function createVerificationToken(): string {
   return randomBytes(24).toString("hex");
+}
+
+async function resolveDns<T>(lookup: () => Promise<T[]>): Promise<T[]> {
+  try {
+    return await lookup();
+  } catch {
+    return [];
+  }
+}
+
+function normalizeDnsHostname(value: string): string {
+  return value.toLowerCase().replace(/\.$/, "");
 }
 
 function mapUniqueError(error: unknown, message: string): Error {

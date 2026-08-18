@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, CheckCircle2, Code2, Copy, CreditCard, Edit3, Eye, Filter, Gift, History, Library, Palette, Plus, RefreshCw, Rocket, Search, SearchCheck, Server, Trash2, UploadCloud } from "lucide-react";
+import { Archive, CheckCircle2, Code2, Copy, CreditCard, Edit3, Eye, Filter, Gift, History, Library, Palette, Plus, RefreshCw, Rocket, Search, SearchCheck, Trash2, UploadCloud } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, use, useEffect, useMemo, useState } from "react";
@@ -67,13 +67,10 @@ export function WebsiteWorkspace({
   const [pages, setPages] = useState<PageSummary[]>([]);
   const [themes, setThemes] = useState<ThemeInstallationSummary[]>([]);
   const [themeCatalog, setThemeCatalog] = useState<ThemeDefinitionSummary[]>([]);
-  const [nextDomainCursor, setNextDomainCursor] = useState<string | null>(null);
   const [pageIndex, setPageIndex] = useState(0);
-  const [domainPageIndex, setDomainPageIndex] = useState(0);
   const [pageQuery, setPageQuery] = useState("");
   const [pageStatusFilter, setPageStatusFilter] = useState("all");
   const [pageParentFilter, setPageParentFilter] = useState("all");
-  const [domainQuery, setDomainQuery] = useState("");
   const [createPageOpen, setCreatePageOpen] = useState(false);
   const [createThemeOpen, setCreateThemeOpen] = useState(false);
   const [themeName, setThemeName] = useState("Portal Modern");
@@ -114,15 +111,8 @@ export function WebsiteWorkspace({
     });
   }, [pageParentFilter, pageQuery, pageStatusFilter, pages]);
 
-  const filteredDomains = useMemo(() => {
-    const normalized = domainQuery.trim().toLowerCase();
-    return domains.filter((domain) => !normalized || `${domain.hostname} ${domain.status} ${domain.verificationStatus}`.toLowerCase().includes(normalized));
-  }, [domainQuery, domains]);
-
   const visiblePages = filteredPages.slice(pageIndex * pageSize, pageIndex * pageSize + pageSize);
   const pageCount = Math.max(1, Math.ceil(filteredPages.length / pageSize));
-  const visibleDomains = filteredDomains.slice(domainPageIndex * pageSize, domainPageIndex * pageSize + pageSize);
-  const domainPageCount = Math.max(1, Math.ceil(filteredDomains.length / pageSize));
 
   async function loadWebsite(activeTenant: ActiveTenant, domainCursor?: string) {
     const [websiteResponse, domainResponse, pagesResponse, themesResponse, catalogResponse] = await Promise.all([
@@ -139,7 +129,6 @@ export function WebsiteWorkspace({
     setName(websiteResponse.name);
     setSlug(websiteResponse.slug);
     setDomains((current) => (domainCursor ? [...current, ...domainResponse.data] : domainResponse.data));
-    setNextDomainCursor(domainResponse.nextCursor);
     setPages(pagesResponse);
     setThemes(themesResponse);
     setThemeCatalog(catalogResponse);
@@ -183,10 +172,6 @@ export function WebsiteWorkspace({
       setPageSlug(slugify(pageTitle));
     }
   }, [pageSlugTouched, pageTitle]);
-
-  useEffect(() => {
-    setDomainPageIndex(0);
-  }, [domainQuery]);
 
   async function switchTenant(tenantId: string) {
     const response = await apiRequest<{ activeTenant: ActiveTenant }>("/tenants/switch", {
@@ -449,18 +434,6 @@ export function WebsiteWorkspace({
     router.push("/websites");
   }
 
-  async function loadNextDomainPage() {
-    if (domainPageIndex + 1 < domainPageCount) {
-      setDomainPageIndex((current) => current + 1);
-      return;
-    }
-
-    if (me?.activeTenant && nextDomainCursor) {
-      await loadWebsite(me.activeTenant, nextDomainCursor);
-      setDomainPageIndex((current) => current + 1);
-    }
-  }
-
   if (!me || !website) {
     if (hasLoadedDashboardShell && me) {
       return (
@@ -490,7 +463,7 @@ export function WebsiteWorkspace({
     const matchesCategory = themeCategoryFilter === "all" || theme.category === themeCategoryFilter;
     return matchesPrice && matchesCategory;
   });
-  const activeSelectedDomain = selectedDomain ? domains.find((domain) => domain.id === selectedDomain.id) ?? selectedDomain : visibleDomains[0] ?? null;
+  const activeSelectedDomain = selectedDomain ? domains.find((domain) => domain.id === selectedDomain.id) ?? selectedDomain : domains[0] ?? null;
 
   return (
     <DashboardShell
@@ -652,7 +625,61 @@ export function WebsiteWorkspace({
 
       {section === "domains" ? (
         <section className="grid items-start gap-4 xl:grid-cols-[minmax(320px,0.72fr)_minmax(0,1.28fr)]">
-          <div className="grid gap-4">
+          {activeSelectedDomain ? (
+            <Card>
+              <SectionHeader
+                title="Custom domain"
+                description="One custom domain can be attached to this website."
+                actions={<DomainBadge status={activeSelectedDomain.verificationStatus} />}
+              />
+              <div className="grid gap-3 rounded-lg border bg-surface-secondary/45 p-3">
+                <div className="min-w-0">
+                  <p className="break-all text-base font-semibold text-foreground">{activeSelectedDomain.hostname}</p>
+                  <p className="mt-1 text-[12px] leading-5 text-muted-foreground">
+                    {activeSelectedDomain.verificationStatus === "VERIFIED" ? "DNS is connected." : "DNS is not connected yet."}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => {
+                      setEditingDomain(activeSelectedDomain);
+                      setEditingHostname(activeSelectedDomain.hostname);
+                    }}
+                  >
+                    <Edit3 className="size-4" />
+                    Edit domain
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    disabled={refreshingDomainId === activeSelectedDomain.id}
+                    onClick={() => void refreshDomainStatus(activeSelectedDomain.id)}
+                  >
+                    <RefreshCw className={refreshingDomainId === activeSelectedDomain.id ? "size-4 animate-spin" : "size-4"} />
+                    Refresh DNS
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="danger"
+                    size="sm"
+                    onClick={() =>
+                      setConfirm({
+                        title: "Disable domain",
+                        description: `Disable ${activeSelectedDomain.hostname}? You can add another domain after this one is disabled.`,
+                        action: () => void domainAction(activeSelectedDomain.id, "disable"),
+                      })
+                    }
+                  >
+                    Disable domain
+                  </Button>
+                </div>
+              </div>
+            </Card>
+          ) : (
             <Card>
               <SectionHeader title="Add domain" description="Attach one hostname to this website." />
               <form className="grid gap-4" onSubmit={addDomain}>
@@ -660,68 +687,14 @@ export function WebsiteWorkspace({
                 <Button type="submit"><Plus className="size-4" />Add domain</Button>
               </form>
             </Card>
+          )}
 
-            <DomainSetupCard
-              domain={activeSelectedDomain}
-              website={website}
-              refreshing={refreshingDomainId === activeSelectedDomain?.id}
-              onRefresh={(domainId) => void refreshDomainStatus(domainId)}
-            />
-          </div>
-
-          <Card>
-            <SectionHeader title="Domains" description="Domain records and verification state." />
-            <Input value={domainQuery} onChange={(event) => setDomainQuery(event.target.value)} placeholder="Filter domains" />
-            {visibleDomains.length ? (
-              <>
-                <Table headers={["Domain", "Primary", "Status", "Verification", "Actions"]}>
-                  {visibleDomains.map((domain) => (
-                    <tr key={domain.id} className="hover:bg-surface-secondary/70">
-                      <td className="font-semibold text-foreground">{domain.hostname}</td>
-                      <td>{domain.isPrimary ? <Badge tone="info">primary</Badge> : <Badge>secondary</Badge>}</td>
-                      <td><DomainBadge status={domain.status} /></td>
-                      <td><DomainBadge status={domain.verificationStatus} /></td>
-                      <td>
-                        <div className="flex flex-wrap justify-end gap-2">
-                          <Button type="button" variant="secondary" size="sm" onClick={() => setSelectedDomain(domain)}>
-                            <Server className="size-4" />
-                            Setup
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => {
-                              setEditingDomain(domain);
-                              setEditingHostname(domain.hostname);
-                            }}
-                          >
-                            <Edit3 className="size-4" />
-                            Edit
-                          </Button>
-                          <Button type="button" variant="secondary" size="sm" disabled={domain.isPrimary} onClick={() => void domainAction(domain.id, "set-primary")}>Primary</Button>
-                          <Button type="button" variant="secondary" size="sm" disabled={refreshingDomainId === domain.id || domain.verificationStatus === "VERIFIED"} onClick={() => void refreshDomainStatus(domain.id)}>
-                            <RefreshCw className={refreshingDomainId === domain.id ? "size-4 animate-spin" : "size-4"} />
-                            Refresh
-                          </Button>
-                          <Button type="button" variant="danger" size="sm" onClick={() => void domainAction(domain.id, "disable")}>Disable</Button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </Table>
-                <Pagination
-                  hasPrevious={domainPageIndex > 0}
-                  hasNext={domainPageIndex + 1 < domainPageCount || Boolean(nextDomainCursor)}
-                  label={`Page ${domainPageIndex + 1} of ${domainPageCount}${nextDomainCursor ? "+" : ""}`}
-                  onPrevious={() => setDomainPageIndex((current) => Math.max(0, current - 1))}
-                  onNext={() => void loadNextDomainPage()}
-                />
-              </>
-            ) : (
-              <EmptyState title="No domains found" description="Attach a domain or adjust the filter." />
-            )}
-          </Card>
+          <DomainSetupCard
+            domain={activeSelectedDomain}
+            website={website}
+            refreshing={refreshingDomainId === activeSelectedDomain?.id}
+            onRefresh={(domainId) => void refreshDomainStatus(domainId)}
+          />
 
           <Sheet open={Boolean(editingDomain)} title="Edit domain" onClose={() => setEditingDomain(null)}>
             <form className="grid gap-4" onSubmit={saveDomain}>
@@ -1147,7 +1120,8 @@ function DomainSetupCard({
   }
 
   const connected = domain.status === "VERIFIED" && domain.verificationStatus === "VERIFIED";
-  const cnameTarget = `${website.slug}.stackbuilder.site`;
+  const cnameTarget = process.env.NEXT_PUBLIC_CUSTOM_DOMAIN_CNAME_TARGET ?? `${website.slug}.stackbuilder.site`;
+  const aRecordIp = process.env.NEXT_PUBLIC_CUSTOM_DOMAIN_A_RECORD_IP ?? "Configured StackBuilder hosting IP";
   const rootRecordName = domain.hostname.startsWith("www.") ? "www" : "@";
   const verificationName = `_stackbuilder.${domain.hostname}`;
 
@@ -1192,7 +1166,7 @@ function DomainSetupCard({
           rows={[
             ["Type", "A"],
             ["Name", "@"],
-            ["Value", "Your StackBuilder hosting IP"],
+            ["Value", aRecordIp],
           ]}
         />
         <DnsRecordStep
@@ -1206,7 +1180,7 @@ function DomainSetupCard({
         />
       </div>
 
-      <Alert tone="info">DNS changes can take a few minutes to propagate. The current backend marks a domain verified when Refresh status runs; automated DNS checks can plug into the same button later.</Alert>
+      <Alert tone="info">DNS changes can take a few minutes to propagate. Refresh DNS checks the TXT ownership record plus the CNAME or configured A record before marking the domain connected.</Alert>
     </Card>
   );
 }

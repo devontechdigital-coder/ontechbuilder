@@ -48,7 +48,7 @@ Builder styles can store explicit values or token references:
 }
 ```
 
-Explicit legacy styles such as `"#111827"` remain valid. Token references are resolved centrally by `features/builder/schema/theme-resolver.ts`.
+Explicit legacy styles such as `"#111827"` remain valid. Token references were resolved centrally by `features/builder/schema/theme-resolver.ts`, part of the node-tree web builder retired in favor of the theme customizer (see `docs/BUILDER.md`).
 
 ## Resolution Rules
 
