@@ -11,6 +11,7 @@ import { resolve4, resolveCname, resolveTxt } from "node:dns/promises";
 import {
   DomainStatus,
   DomainVerificationStatus,
+  PageStatus,
   Prisma,
   WebsiteStatus,
 } from "../../core/database/database.js";
@@ -185,6 +186,81 @@ export class WebsitesService {
   async getTheme(actorUserId: string, tenantId: string, websiteId: string) {
     await this.access.assertWebsiteAccess(actorUserId, tenantId, websiteId);
     return this.ensureActiveTheme(websiteId);
+  }
+
+  async resolvePublicSite(host: unknown, path: unknown) {
+    const normalizedHostname = normalizeHostname(host);
+    const requestedPath = normalizePublicPath(path);
+
+    const domain = await this.prisma.domain.findFirst({
+      where: {
+        normalizedHostname,
+        status: DomainStatus.VERIFIED,
+        verificationStatus: DomainVerificationStatus.VERIFIED,
+        website: {
+          status: {
+            not: WebsiteStatus.ARCHIVED,
+          },
+        },
+      },
+      select: {
+        hostname: true,
+        website: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            status: true,
+            homePage: {
+              select: publicPageSelect,
+            },
+            pages: {
+              where: {
+                status: PageStatus.PUBLISHED,
+                slug: requestedPath,
+              },
+              take: 1,
+              select: publicPageSelect,
+            },
+            themes: {
+              where: {
+                isActive: true,
+              },
+              take: 1,
+              select: {
+                name: true,
+                tokens: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!domain) {
+      throw new NotFoundException("Public site was not found for this domain");
+    }
+
+    return buildPublicSiteResponse(domain.hostname, domain.website, requestedPath);
+  }
+
+  async resolvePublicSitePreview(websiteId: string, path: unknown) {
+    const requestedPath = normalizePublicPath(path);
+    const website = await this.prisma.website.findFirst({
+      where: {
+        id: websiteId,
+        status: {
+          not: WebsiteStatus.ARCHIVED,
+        },
+      },
+      select: publicWebsiteSelect(requestedPath),
+    });
+
+    if (!website) {
+      throw new NotFoundException("Preview site was not found");
+    }
+
+    return buildPublicSiteResponse("portal preview", website, requestedPath);
   }
 
   async updateTheme(input: UpdateThemeInput) {
@@ -554,6 +630,7 @@ export class WebsitesService {
 export const websiteSelect = {
   id: true,
   tenantId: true,
+  homePageId: true,
   name: true,
   slug: true,
   status: true,
@@ -586,6 +663,78 @@ export const themeSelect = {
   updatedAt: true,
 } satisfies Prisma.WebsiteThemeSelect;
 
+const publicPageSelect = {
+  id: true,
+  title: true,
+  slug: true,
+  seo: true,
+  publishedVersion: {
+    select: {
+      content: true,
+    },
+  },
+} satisfies Prisma.PageSelect;
+
+function publicWebsiteSelect(requestedPath: string) {
+  return {
+    id: true,
+    name: true,
+    slug: true,
+    status: true,
+    homePage: {
+      select: publicPageSelect,
+    },
+    pages: {
+      where: {
+        status: PageStatus.PUBLISHED,
+        slug: requestedPath,
+      },
+      take: 1,
+      select: publicPageSelect,
+    },
+    themes: {
+      where: {
+        isActive: true,
+      },
+      take: 1,
+      select: {
+        name: true,
+        tokens: true,
+      },
+    },
+  } satisfies Prisma.WebsiteSelect;
+}
+
+function buildPublicSiteResponse(
+  hostname: string,
+  website: Prisma.WebsiteGetPayload<{ select: ReturnType<typeof publicWebsiteSelect> }>,
+  requestedPath: string,
+) {
+  const requestedPage = website.pages[0] ?? null;
+  const page = requestedPage ?? (requestedPath === "home" ? website.homePage : null);
+  const publishedVersion = page?.publishedVersion ?? null;
+
+  return {
+    hostname,
+    website: {
+      id: website.id,
+      name: website.name,
+      slug: website.slug,
+      status: website.status,
+    },
+    page: page
+      ? {
+          id: page.id,
+          title: page.title,
+          slug: page.slug,
+          seo: page.seo,
+          content: publishedVersion?.content ?? null,
+        }
+      : null,
+    theme: website.themes[0] ?? null,
+  };
+}
+
 export function normalizeHostname(value: unknown): string {
   const rawHostname = requiredString(value, "hostname").toLowerCase();
   const withoutProtocol = rawHostname.replace(/^https?:\/\//, "");
@@ -614,6 +763,13 @@ function parseBoolean(value: unknown): boolean {
   }
 
   return value;
+}
+
+function normalizePublicPath(value: unknown): string {
+  const rawPath = typeof value === "string" ? value : "/";
+  const cleanPath = rawPath.split(/[?#]/)[0]?.trim().replace(/^\/+|\/+$/g, "") ?? "";
+
+  return cleanPath || "home";
 }
 
 function parsePagination(

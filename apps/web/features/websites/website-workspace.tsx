@@ -1,9 +1,10 @@
 "use client";
 
-import { Archive, CheckCircle2, Code2, Copy, CreditCard, Edit3, Eye, Filter, Gift, History, Library, Palette, Plus, RefreshCw, Rocket, Search, SearchCheck, Trash2, UploadCloud } from "lucide-react";
+import { Archive, CheckCircle2, Code2, Copy, CreditCard, Edit3, ExternalLink, Eye, Filter, Gift, Globe2, History, Library, Palette, Plus, RefreshCw, Rocket, Search, SearchCheck, Trash2, UploadCloud } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FormEvent, use, useEffect, useMemo, useState } from "react";
+import type { FormEvent, ReactNode } from "react";
+import { use, useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import { DashboardShell } from "../../components/layout/dashboard-shell";
 import { Button, ButtonLink } from "../../components/ui/button";
@@ -91,6 +92,12 @@ export function WebsiteWorkspace({
   const [pageSlugTouched, setPageSlugTouched] = useState(false);
   const [parentId, setParentId] = useState("");
   const [isHomePage, setIsHomePage] = useState(false);
+  const [editingPage, setEditingPage] = useState<PageSummary | null>(null);
+  const [editingPageTitle, setEditingPageTitle] = useState("");
+  const [editingPageSlug, setEditingPageSlug] = useState("");
+  const [editingPageParentId, setEditingPageParentId] = useState("");
+  const [editingPageIsHomePage, setEditingPageIsHomePage] = useState(false);
+  const [editingPageStatus, setEditingPageStatus] = useState<PageSummary["status"]>("DRAFT");
   const [seoPage, setSeoPage] = useState<PageSummary | null>(null);
   const [themeOpen, setThemeOpen] = useState(false);
   const [historyTheme, setHistoryTheme] = useState<ThemeInstallationSummary | null>(null);
@@ -328,6 +335,53 @@ export function WebsiteWorkspace({
     }
   }
 
+  function openEditPage(page: PageSummary) {
+    setEditingPage(page);
+    setEditingPageTitle(page.title);
+    setEditingPageSlug(page.slug);
+    setEditingPageParentId(page.parentId ?? "");
+    setEditingPageIsHomePage(website?.homePageId === page.id);
+    setEditingPageStatus(page.status);
+  }
+
+  async function savePage(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError(null);
+
+    if (!editingPage) {
+      return;
+    }
+
+    try {
+      await apiRequest<PageSummary>(`/pages/${editingPage.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          title: editingPageTitle,
+          slug: editingPageSlug,
+          parentId: editingPageParentId || null,
+          isHomePage: editingPageIsHomePage,
+          status: editingPageStatus,
+        }),
+      });
+      setEditingPage(null);
+      toast.success("Page updated");
+      await refresh();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Page update failed");
+    }
+  }
+
+  async function publishPageDraft(page: PageSummary) {
+    if (!page.draftVersionId) {
+      toast.error("Create or save a draft before publishing.");
+      return;
+    }
+
+    await apiRequest(`/pages/${page.id}/versions/${page.draftVersionId}/publish`, { method: "POST" });
+    toast.success(`${page.title} is live`);
+    await refresh();
+  }
+
   async function archivePage(page: PageSummary) {
     await apiRequest(`/pages/${page.id}/archive`, { method: "POST" });
     await refresh();
@@ -425,6 +479,20 @@ export function WebsiteWorkspace({
     }
   }
 
+  async function publishWebsite() {
+    if (!me?.activeTenant) {
+      return;
+    }
+
+    const response = await apiRequest<WebsiteSummary>(`/tenants/${me.activeTenant.id}/websites/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status: "PUBLISHED" }),
+    });
+    setWebsite(response);
+    toast.success("Website is live");
+    await refresh();
+  }
+
   async function archiveWebsite() {
     if (!me?.activeTenant) {
       return;
@@ -464,6 +532,9 @@ export function WebsiteWorkspace({
     return matchesPrice && matchesCategory;
   });
   const activeSelectedDomain = selectedDomain ? domains.find((domain) => domain.id === selectedDomain.id) ?? selectedDomain : domains[0] ?? null;
+  const verifiedDomain = domains.find((domain) => domain.status === "VERIFIED" && domain.verificationStatus === "VERIFIED") ?? null;
+  const customDomainUrl = verifiedDomain ? `https://${verifiedDomain.hostname}` : null;
+  const portalPreviewUrl = buildPortalPreviewUrl(website.id);
 
   return (
     <DashboardShell
@@ -473,9 +544,23 @@ export function WebsiteWorkspace({
       me={me}
       tenants={tenants}
       breadcrumbs={[{ label: "Workspace", href: "/" }, { label: "Websites", href: "/websites" }, { label: website.name }]}
+      actions={
+        <WebsiteViewActions
+          website={website}
+          customDomainUrl={customDomainUrl}
+          portalPreviewUrl={portalPreviewUrl}
+          onPublishWebsite={() => void publishWebsite()}
+        />
+      }
       onTenantChange={switchTenant}
     >
       {error ? <Alert>{error}</Alert> : null}
+
+      <WebsiteViewPanel
+        customDomainUrl={customDomainUrl}
+        portalPreviewUrl={portalPreviewUrl}
+        verifiedDomain={verifiedDomain}
+      />
 
       {section === "pages" ? (
         <>
@@ -544,7 +629,23 @@ export function WebsiteWorkspace({
                       <td className="text-muted-foreground">{new Date(page.updatedAt).toLocaleDateString()}</td>
                       <td>
                         <div className="flex justify-end gap-2">
-                          <ButtonLink href={`/builder/pages/${page.id}`} size="sm" variant="secondary">Builder</ButtonLink>
+                          <ButtonLink href={`/builder/pages/${page.id}`} size="sm" variant="secondary">
+                            <Code2 className="size-4" />
+                            Builder
+                          </ButtonLink>
+                          <Button type="button" size="sm" variant="secondary" onClick={() => openEditPage(page)}>
+                            <Edit3 className="size-4" />
+                            Edit
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            disabled={!page.draftVersionId}
+                            onClick={() => void publishPageDraft(page)}
+                          >
+                            <Rocket className="size-4" />
+                            Publish
+                          </Button>
                           <Button type="button" size="sm" variant="secondary" onClick={() => setSeoPage(page)}>
                             <SearchCheck className="size-4" />
                             SEO
@@ -603,6 +704,50 @@ export function WebsiteWorkspace({
               <div className="flex justify-end gap-2">
                 <Button type="button" variant="secondary" onClick={() => setCreatePageOpen(false)}>Cancel</Button>
                 <Button type="submit"><Plus className="size-4" />Create page</Button>
+              </div>
+            </form>
+          </Sheet>
+          <Sheet open={Boolean(editingPage)} title="Edit page" onClose={() => setEditingPage(null)}>
+            <form className="grid gap-4" onSubmit={savePage}>
+              <Field label="Title">
+                <Input
+                  value={editingPageTitle}
+                  onChange={(event) => setEditingPageTitle(event.target.value)}
+                  required
+                />
+              </Field>
+              <Field label="Slug" hint="Lowercase URL path for this page.">
+                <Input
+                  value={editingPageSlug}
+                  onChange={(event) => setEditingPageSlug(slugify(event.target.value))}
+                  required
+                />
+              </Field>
+              <Field label="Parent">
+                <Select value={editingPageParentId} onChange={(event) => setEditingPageParentId(event.target.value)}>
+                  <option value="">No parent</option>
+                  {pages
+                    .filter((page) => page.id !== editingPage?.id)
+                    .map((page) => <option key={page.id} value={page.id}>{page.title}</option>)}
+                </Select>
+              </Field>
+              <Field label="Status" hint="Publish a draft version to make page content live.">
+                <Select
+                  value={editingPageStatus}
+                  onChange={(event) => setEditingPageStatus(event.target.value as PageSummary["status"])}
+                >
+                  <option value="DRAFT">Draft</option>
+                  <option value="PUBLISHED">Published</option>
+                </Select>
+              </Field>
+              <Checkbox
+                label="Set as homepage"
+                checked={editingPageIsHomePage}
+                onChange={(event) => setEditingPageIsHomePage(event.target.checked)}
+              />
+              <div className="flex justify-end gap-2">
+                <Button type="button" variant="secondary" onClick={() => setEditingPage(null)}>Cancel</Button>
+                <Button type="submit"><CheckCircle2 className="size-4" />Save page</Button>
               </div>
             </form>
           </Sheet>
@@ -1099,6 +1244,132 @@ function StatusBadge({ status }: { status: WebsiteSummary["status"] | PageSummar
   return <Badge tone={tone}>{status.toLowerCase()}</Badge>;
 }
 
+function WebsiteViewActions({
+  website,
+  customDomainUrl,
+  portalPreviewUrl,
+  onPublishWebsite,
+}: {
+  website: WebsiteSummary;
+  customDomainUrl: string | null;
+  portalPreviewUrl: string;
+  onPublishWebsite: () => void;
+}) {
+  return (
+    <>
+      {website.status !== "PUBLISHED" ? (
+        <Button type="button" size="sm" onClick={onPublishWebsite}>
+          <Rocket className="size-4" />
+          Publish website
+        </Button>
+      ) : null}
+      {customDomainUrl ? (
+        <Button asChild variant="secondary" size="sm">
+          <a href={customDomainUrl} target="_blank" rel="noreferrer">
+            <Globe2 className="size-4" />
+            View custom domain
+          </a>
+        </Button>
+      ) : (
+        <Button type="button" variant="secondary" size="sm" disabled>
+          <Globe2 className="size-4" />
+          Custom domain
+        </Button>
+      )}
+      <Button asChild size="sm">
+        <a href={portalPreviewUrl} target="_blank" rel="noreferrer">
+          <ExternalLink className="size-4" />
+          Portal test URL
+        </a>
+      </Button>
+    </>
+  );
+}
+
+function WebsiteViewPanel({
+  customDomainUrl,
+  portalPreviewUrl,
+  verifiedDomain,
+}: {
+  customDomainUrl: string | null;
+  portalPreviewUrl: string;
+  verifiedDomain: DomainSummary | null;
+}) {
+  return (
+    <Card className="gap-3">
+      <SectionHeader
+        title="View website"
+        description="Open the live custom domain when it is connected, or use the portal test URL before DNS is ready."
+        actions={verifiedDomain ? <Badge tone="success">custom domain connected</Badge> : <Badge tone="warning">custom domain not connected</Badge>}
+      />
+      <div className="grid gap-3 lg:grid-cols-2">
+        <ViewUrlRow
+          icon={<Globe2 className="size-4" />}
+          label="Custom domain"
+          value={customDomainUrl ?? "Connect and verify a custom domain first"}
+          href={customDomainUrl}
+        />
+        <ViewUrlRow
+          icon={<ExternalLink className="size-4" />}
+          label="Portal test URL"
+          value={portalPreviewUrl}
+          href={portalPreviewUrl}
+        />
+      </div>
+    </Card>
+  );
+}
+
+function ViewUrlRow({
+  icon,
+  label,
+  value,
+  href,
+}: {
+  icon: ReactNode;
+  label: string;
+  value: string;
+  href: string | null;
+}) {
+  async function copyValue() {
+    if (!href || typeof navigator === "undefined" || !navigator.clipboard) {
+      return;
+    }
+
+    await navigator.clipboard.writeText(href);
+    toast.success("Copied");
+  }
+
+  return (
+    <div className="grid gap-2 rounded-lg border bg-surface-secondary/35 p-3">
+      <div className="flex items-center gap-2 text-[12px] font-semibold text-foreground">
+        {icon}
+        {label}
+      </div>
+      <p className="min-h-5 break-all text-[12px] leading-5 text-muted-foreground">{value}</p>
+      <div className="flex flex-wrap gap-2">
+        {href ? (
+          <Button asChild size="sm" variant="secondary">
+            <a href={href} target="_blank" rel="noreferrer">
+              <Eye className="size-4" />
+              View
+            </a>
+          </Button>
+        ) : (
+          <Button type="button" size="sm" variant="secondary" disabled>
+            <Eye className="size-4" />
+            View
+          </Button>
+        )}
+        <Button type="button" size="sm" variant="ghost" disabled={!href} onClick={() => void copyValue()}>
+          <Copy className="size-4" />
+          Copy
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function DomainSetupCard({
   domain,
   website,
@@ -1122,7 +1393,8 @@ function DomainSetupCard({
   const connected = domain.status === "VERIFIED" && domain.verificationStatus === "VERIFIED";
   const cnameTarget = process.env.NEXT_PUBLIC_CUSTOM_DOMAIN_CNAME_TARGET ?? `${website.slug}.stackbuilder.site`;
   const aRecordIp = process.env.NEXT_PUBLIC_CUSTOM_DOMAIN_A_RECORD_IP ?? "Configured StackBuilder hosting IP";
-  const rootRecordName = domain.hostname.startsWith("www.") ? "www" : "@";
+  const isWwwDomain = domain.hostname.startsWith("www.");
+  const rootRecordName = isWwwDomain ? "www" : "@";
   const verificationName = `_stackbuilder.${domain.hostname}`;
 
   return (
@@ -1152,17 +1424,17 @@ function DomainSetupCard({
 
       <div className="grid gap-3">
         <DnsRecordStep
-          title="Option 1: Use a CNAME"
-          helper="Best for www or subdomains."
+          title="Step 1: Verify ownership"
+          helper="Required before this domain can be marked connected."
           rows={[
-            ["Type", "CNAME"],
-            ["Name", rootRecordName],
-            ["Value", cnameTarget],
+            ["Type", "TXT"],
+            ["Name", verificationName],
+            ["Value", domain.verificationToken],
           ]}
         />
         <DnsRecordStep
-          title="Option 2: Use an A record"
-          helper="Best for root domains when your DNS provider cannot use CNAME flattening."
+          title="Step 2: Point the root domain"
+          helper="Use this for root domains when your DNS provider cannot use CNAME flattening, ALIAS, or ANAME."
           rows={[
             ["Type", "A"],
             ["Name", "@"],
@@ -1170,12 +1442,12 @@ function DomainSetupCard({
           ]}
         />
         <DnsRecordStep
-          title="Verify ownership"
-          helper="Keep this TXT record until the domain is connected."
+          title={isWwwDomain ? "Step 2: Point the www domain" : "Alternative: Use a CNAME"}
+          helper={isWwwDomain ? "Use this for www or another subdomain." : "Use this only if your DNS provider supports CNAME flattening, ALIAS, or ANAME at the root."}
           rows={[
-            ["Type", "TXT"],
-            ["Name", verificationName],
-            ["Value", domain.verificationToken],
+            ["Type", "CNAME"],
+            ["Name", rootRecordName],
+            ["Value", cnameTarget],
           ]}
         />
       </div>
@@ -1326,4 +1598,23 @@ function slugify(value: string) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .replace(/-{2,}/g, "-");
+}
+
+function buildPortalPreviewUrl(websiteId: string) {
+  const configuredBaseUrl = process.env.NEXT_PUBLIC_SITE_RENDERER_URL || process.env.NEXT_PUBLIC_PUBLIC_SITE_URL;
+  const baseUrl = configuredBaseUrl || getDefaultPortalPreviewBaseUrl();
+
+  return `${baseUrl.replace(/\/$/, "")}/preview/${websiteId}`;
+}
+
+function getDefaultPortalPreviewBaseUrl() {
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
+    return "http://localhost:3001";
+  }
+
+  return `${window.location.origin}/site`;
 }

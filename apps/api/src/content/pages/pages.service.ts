@@ -35,6 +35,7 @@ interface UpdatePageInput extends ActorInput {
   slug?: unknown;
   parentId?: unknown;
   isHomePage?: unknown;
+  status?: unknown;
 }
 
 interface UpdateSeoInput extends ActorInput {
@@ -196,6 +197,10 @@ export class PagesService {
       const parentId = optionalString(input.parentId, "parentId");
       await this.validateParentChange(input.tenantId, page.websiteId, page.id, parentId);
       data.parent = parentId ? { connect: { id: parentId } } : { disconnect: true };
+    }
+
+    if (input.status !== undefined) {
+      data.status = parsePageStatus(input.status);
     }
 
     if (!Object.keys(data).length && isHomePage === undefined) {
@@ -769,6 +774,16 @@ function parseOptionalBoolean(value: unknown, field: string): boolean | undefine
   }
 
   return value;
+}
+
+function parsePageStatus(value: unknown): PageStatus {
+  const status = requiredString(value, "status").toUpperCase();
+
+  if (!Object.values(PageStatus).includes(status as PageStatus) || status === PageStatus.ARCHIVED) {
+    throw new BadRequestException("status must be draft or published");
+  }
+
+  return status as PageStatus;
 }
 
 function parseVersionContent(value: unknown): Prisma.InputJsonValue {

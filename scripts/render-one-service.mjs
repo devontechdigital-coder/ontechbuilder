@@ -28,6 +28,7 @@ const children = [
   }, webDirectory),
   startProcess("renderer", process.execPath, [nextBin, "start", "-p", String(rendererPort)], {
     PORT: String(rendererPort),
+    API_BASE_URL: process.env.RENDERER_API_BASE_URL ?? `http://127.0.0.1:${apiPort}`,
   }, rendererDirectory),
 ];
 
@@ -48,6 +49,12 @@ const server = createServer((request, response) => {
 
   if (requestUrl.pathname === "/site" || requestUrl.pathname.startsWith("/site/")) {
     requestUrl.pathname = requestUrl.pathname.replace(/^\/site/, "") || "/";
+    requestUrl.pathname = requestUrl.pathname.replace(/^\/_preview(?=\/|$)/, "/preview");
+    proxyRequest(request, response, rendererPort, requestUrl);
+    return;
+  }
+
+  if (isPublicSiteHost(request.headers.host)) {
     proxyRequest(request, response, rendererPort, requestUrl);
     return;
   }
@@ -128,6 +135,7 @@ function proxyRequest(incomingRequest, outgoingResponse, targetPort, requestUrl)
 }
 
 function createProxyRequest(targetPort, incomingRequest, requestUrl, onResponse) {
+  const incomingHost = incomingRequest.headers.host;
   return createHttpRequest(
     {
       hostname: "127.0.0.1",
@@ -136,11 +144,52 @@ function createProxyRequest(targetPort, incomingRequest, requestUrl, onResponse)
       method: incomingRequest.method,
       headers: {
         ...incomingRequest.headers,
+        ...(incomingHost ? { "x-forwarded-host": incomingHost } : {}),
         host: `127.0.0.1:${targetPort}`,
       },
     },
     onResponse,
   );
+}
+
+function isPublicSiteHost(hostHeader) {
+  const host = normalizeHost(hostHeader);
+
+  if (!host || host === "localhost" || host === "127.0.0.1" || host === "::1") {
+    return false;
+  }
+
+  const adminHosts = [
+    process.env.ADMIN_WEB_URL,
+    process.env.API_BASE_URL,
+    process.env.RENDER_EXTERNAL_URL,
+    process.env.RENDER_EXTERNAL_HOSTNAME ? `https://${process.env.RENDER_EXTERNAL_HOSTNAME}` : undefined,
+  ]
+    .map((value) => normalizeUrlHost(value))
+    .filter(Boolean);
+
+  return !adminHosts.includes(host);
+}
+
+function normalizeUrlHost(value) {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    return normalizeHost(new URL(value).host);
+  } catch {
+    return normalizeHost(value);
+  }
+}
+
+function normalizeHost(value) {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/^\[/, "")
+    .replace(/\]$/, "")
+    .replace(/:\d+$/, "")
+    .replace(/\.$/, "");
 }
 
 function prefixLines(name, data) {

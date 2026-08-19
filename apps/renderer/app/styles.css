@@ -33,6 +33,19 @@ body {
   padding: 32px;
 }
 
+.public-site {
+  min-height: 100vh;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(246, 247, 242, 0.94)),
+    var(--background);
+  padding: 56px clamp(20px, 6vw, 88px);
+}
+
+.hero {
+  width: min(920px, 100%);
+  padding: clamp(48px, 9vw, 104px) 0;
+}
+
 .status {
   width: min(640px, 100%);
   border: 1px solid var(--border);
@@ -52,7 +65,7 @@ body {
 h1 {
   margin: 0 0 12px;
   font-size: clamp(2rem, 4vw, 3rem);
-  line-height: 1;
+  line-height: 1.05;
 }
 
 p {

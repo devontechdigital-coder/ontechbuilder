@@ -6,6 +6,7 @@ export interface PageResult<T> {
 export interface WebsiteSummary {
   id: string;
   tenantId: string;
+  homePageId: string | null;
   name: string;
   slug: string;
   status: "DRAFT" | "PUBLISHED" | "ARCHIVED";

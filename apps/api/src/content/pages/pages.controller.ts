@@ -90,6 +90,7 @@ export class PagesController {
       slug: input.slug,
       parentId: input.parentId,
       isHomePage: input.isHomePage,
+      status: input.status,
     });
   }
 
