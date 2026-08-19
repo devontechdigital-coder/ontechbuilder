@@ -27,6 +27,7 @@ interface CreatePageInput extends ActorInput {
   slug: unknown;
   parentId?: unknown;
   isHomePage?: unknown;
+  templateId?: unknown;
 }
 
 interface UpdatePageInput extends ActorInput {
@@ -36,6 +37,7 @@ interface UpdatePageInput extends ActorInput {
   parentId?: unknown;
   isHomePage?: unknown;
   status?: unknown;
+  templateId?: unknown;
 }
 
 interface UpdateSeoInput extends ActorInput {
@@ -107,6 +109,7 @@ export class PagesService {
     const title = requiredString(input.title, "title");
     const slug = requiredSlug(input.slug);
     const parentId = optionalString(input.parentId, "parentId");
+    const templateId = optionalString(input.templateId, "templateId");
     const isHomePage = parseOptionalBoolean(input.isHomePage, "isHomePage");
 
     if (parentId) {
@@ -122,6 +125,7 @@ export class PagesService {
             ...(parentId ? { parentId } : {}),
             title,
             slug,
+            ...(templateId ? { templateId } : {}),
             status: PageStatus.DRAFT,
           },
           select: pageSelect,
@@ -201,6 +205,10 @@ export class PagesService {
 
     if (input.status !== undefined) {
       data.status = parsePageStatus(input.status);
+    }
+
+    if (input.templateId !== undefined) {
+      data.templateId = optionalString(input.templateId, "templateId") ?? null;
     }
 
     if (!Object.keys(data).length && isHomePage === undefined) {
@@ -691,6 +699,7 @@ export const pageSelect = {
   parentId: true,
   title: true,
   slug: true,
+  templateId: true,
   seo: true,
   status: true,
   draftVersionId: true,
@@ -705,6 +714,7 @@ export const pageListSelect = {
   parentId: true,
   title: true,
   slug: true,
+  templateId: true,
   status: true,
   draftVersionId: true,
   publishedVersionId: true,

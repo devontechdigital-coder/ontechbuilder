@@ -1,9 +1,10 @@
 import { ThemeCustomizerPage } from "../../../../../../features/websites/theme-customizer-page";
 
-export default function WebsiteThemeCustomizeRoute({
+export default async function WebsiteThemeCustomizeRoute({
   params,
 }: {
   params: Promise<{ id: string; themeId: string }>;
 }) {
-  return <ThemeCustomizerPage params={params} />;
+  const { id, themeId } = await params;
+  return <ThemeCustomizerPage websiteId={id} themeId={themeId} />;
 }

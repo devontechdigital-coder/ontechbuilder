@@ -3,17 +3,18 @@
 import { Archive, CheckCircle2, Code2, Copy, CreditCard, Edit3, ExternalLink, Eye, Filter, Gift, Globe2, History, Library, Palette, Plus, RefreshCw, Rocket, Search, SearchCheck, Trash2, UploadCloud } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import type { FormEvent, ReactNode } from "react";
+import type { FormEvent } from "react";
 import { use, useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import { DashboardShell } from "../../components/layout/dashboard-shell";
-import { Button, ButtonLink } from "../../components/ui/button";
+import { Button, ButtonLink, IconButton } from "../../components/ui/button";
 import { Alert, Badge, Card, EmptyState, LoadingState, SectionHeader } from "../../components/ui/display";
 import { Checkbox, Field, Input, Select } from "../../components/ui/form";
 import { Pagination, Table } from "../../components/ui/navigation";
 import { ConfirmDialog, Modal, Sheet } from "../../components/ui/overlay";
 import { apiRequest } from "../../lib/api";
 import type { ActiveTenant, SafeUser, TenantSummary } from "../auth/types";
+import { getTemplateDefinitions, isHomeTemplateId, type TemplateDefinition } from "./customizer/state";
 import type {
   DomainSummary,
   PageResult,
@@ -92,11 +93,14 @@ export function WebsiteWorkspace({
   const [pageSlugTouched, setPageSlugTouched] = useState(false);
   const [parentId, setParentId] = useState("");
   const [isHomePage, setIsHomePage] = useState(false);
+  const [templateOptions, setTemplateOptions] = useState<TemplateDefinition[]>([]);
+  const [pageTemplateId, setPageTemplateId] = useState("");
   const [editingPage, setEditingPage] = useState<PageSummary | null>(null);
   const [editingPageTitle, setEditingPageTitle] = useState("");
   const [editingPageSlug, setEditingPageSlug] = useState("");
   const [editingPageParentId, setEditingPageParentId] = useState("");
   const [editingPageIsHomePage, setEditingPageIsHomePage] = useState(false);
+  const [editingPageTemplateId, setEditingPageTemplateId] = useState("");
   const [editingPageStatus, setEditingPageStatus] = useState<PageSummary["status"]>("DRAFT");
   const [seoPage, setSeoPage] = useState<PageSummary | null>(null);
   const [themeOpen, setThemeOpen] = useState(false);
@@ -139,6 +143,18 @@ export function WebsiteWorkspace({
     setPages(pagesResponse);
     setThemes(themesResponse);
     setThemeCatalog(catalogResponse);
+
+    if (section === "pages") {
+      const currentThemeId = themesResponse.find((theme) => theme.status === "PUBLISHED")?.id ?? themesResponse[0]?.id ?? null;
+      if (currentThemeId) {
+        const draftResponse = await apiRequest<ThemeDraftSummary>(
+          `/tenants/${activeTenant.id}/websites/${id}/themes/${currentThemeId}/draft`,
+        );
+        setTemplateOptions(getTemplateDefinitions(draftResponse));
+      } else {
+        setTemplateOptions([]);
+      }
+    }
   }
 
   useEffect(() => {
@@ -314,6 +330,17 @@ export function WebsiteWorkspace({
     await refresh();
   }
 
+  /** Homepages get the theme's home template; every other page defaults to its generic "page" template. */
+  function defaultTemplateId(forHomePage: boolean): string {
+    if (!templateOptions.length) {
+      return "";
+    }
+    const preferred = forHomePage
+      ? templateOptions.find((template) => isHomeTemplateId(template.id))
+      : (templateOptions.find((template) => template.id === "page") ?? templateOptions.find((template) => !isHomeTemplateId(template.id)));
+    return preferred?.id ?? templateOptions[0]?.id ?? "";
+  }
+
   async function createPage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
@@ -321,13 +348,14 @@ export function WebsiteWorkspace({
     try {
       await apiRequest<PageSummary>(`/websites/${id}/pages`, {
         method: "POST",
-        body: JSON.stringify({ title: pageTitle, slug: pageSlug, parentId: parentId || null, isHomePage }),
+        body: JSON.stringify({ title: pageTitle, slug: pageSlug, parentId: parentId || null, isHomePage, templateId: pageTemplateId || null }),
       });
       setPageTitle("");
       setPageSlug("");
       setPageSlugTouched(false);
       setParentId("");
       setIsHomePage(false);
+      setPageTemplateId(defaultTemplateId(false));
       setCreatePageOpen(false);
       await refresh();
     } catch (requestError) {
@@ -336,11 +364,13 @@ export function WebsiteWorkspace({
   }
 
   function openEditPage(page: PageSummary) {
+    const pageIsHomePage = website?.homePageId === page.id;
     setEditingPage(page);
     setEditingPageTitle(page.title);
     setEditingPageSlug(page.slug);
     setEditingPageParentId(page.parentId ?? "");
-    setEditingPageIsHomePage(website?.homePageId === page.id);
+    setEditingPageIsHomePage(pageIsHomePage);
+    setEditingPageTemplateId(page.templateId ?? defaultTemplateId(pageIsHomePage));
     setEditingPageStatus(page.status);
   }
 
@@ -360,6 +390,7 @@ export function WebsiteWorkspace({
           slug: editingPageSlug,
           parentId: editingPageParentId || null,
           isHomePage: editingPageIsHomePage,
+          templateId: editingPageTemplateId || null,
           status: editingPageStatus,
         }),
       });
@@ -556,12 +587,6 @@ export function WebsiteWorkspace({
     >
       {error ? <Alert>{error}</Alert> : null}
 
-      <WebsiteViewPanel
-        customDomainUrl={customDomainUrl}
-        portalPreviewUrl={portalPreviewUrl}
-        verifiedDomain={verifiedDomain}
-      />
-
       {section === "pages" ? (
         <>
           <Card>
@@ -571,7 +596,13 @@ export function WebsiteWorkspace({
               actions={
                 <div className="flex flex-wrap gap-2">
                   <ThemeButton onClick={() => setThemeOpen(true)} />
-                  <Button type="button" onClick={() => setCreatePageOpen(true)}>
+                  <Button
+                    type="button"
+                    onClick={() => {
+                      setPageTemplateId(defaultTemplateId(false));
+                      setCreatePageOpen(true);
+                    }}
+                  >
                     <Plus className="size-4" />
                     Create page
                   </Button>
@@ -628,36 +659,30 @@ export function WebsiteWorkspace({
                       <td><StatusBadge status={page.status} /></td>
                       <td className="text-muted-foreground">{new Date(page.updatedAt).toLocaleDateString()}</td>
                       <td>
-                        <div className="flex justify-end gap-2">
-                          <ButtonLink href={`/builder/pages/${page.id}`} size="sm" variant="secondary">
+                        <div className="flex justify-end gap-1">
+                          <ButtonLink href={`/builder/pages/${page.id}`} size="icon" variant="secondary" ariaLabel={`Open ${page.title} in builder`}>
                             <Code2 className="size-4" />
-                            Builder
                           </ButtonLink>
-                          <Button type="button" size="sm" variant="secondary" onClick={() => openEditPage(page)}>
+                          <IconButton label={`Edit ${page.title}`} onClick={() => openEditPage(page)}>
                             <Edit3 className="size-4" />
-                            Edit
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
+                          </IconButton>
+                          <IconButton
+                            label={`Publish ${page.title}`}
                             disabled={!page.draftVersionId}
                             onClick={() => void publishPageDraft(page)}
                           >
                             <Rocket className="size-4" />
-                            Publish
-                          </Button>
-                          <Button type="button" size="sm" variant="secondary" onClick={() => setSeoPage(page)}>
+                          </IconButton>
+                          <IconButton label={`SEO settings for ${page.title}`} onClick={() => setSeoPage(page)}>
                             <SearchCheck className="size-4" />
-                            SEO
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="danger"
+                          </IconButton>
+                          <IconButton
+                            label={`Archive ${page.title}`}
+                            className="text-destructive hover:bg-destructive/10 hover:text-destructive"
                             onClick={() => setConfirm({ title: "Archive page", description: `Archive ${page.title}?`, action: () => void archivePage(page) })}
                           >
                             <Archive className="size-4" />
-                          </Button>
+                          </IconButton>
                         </div>
                       </td>
                     </tr>
@@ -700,7 +725,24 @@ export function WebsiteWorkspace({
                   {pages.map((page) => <option key={page.id} value={page.id}>{page.title}</option>)}
                 </Select>
               </Field>
-              <Checkbox label="Set as homepage" checked={isHomePage} onChange={(event) => setIsHomePage(event.target.checked)} />
+              {templateOptions.length ? (
+                <Field label="Template" hint="Controls which theme layout this page opens with in the builder.">
+                  <Select value={pageTemplateId} onChange={(event) => setPageTemplateId(event.target.value)}>
+                    {templateOptions.map((template) => (
+                      <option key={template.id} value={template.id}>{template.name}</option>
+                    ))}
+                  </Select>
+                </Field>
+              ) : null}
+              <Checkbox
+                label="Set as homepage"
+                checked={isHomePage}
+                onChange={(event) => {
+                  const checked = event.target.checked;
+                  setIsHomePage(checked);
+                  setPageTemplateId(defaultTemplateId(checked));
+                }}
+              />
               <div className="flex justify-end gap-2">
                 <Button type="button" variant="secondary" onClick={() => setCreatePageOpen(false)}>Cancel</Button>
                 <Button type="submit"><Plus className="size-4" />Create page</Button>
@@ -740,10 +782,23 @@ export function WebsiteWorkspace({
                   <option value="PUBLISHED">Published</option>
                 </Select>
               </Field>
+              {templateOptions.length ? (
+                <Field label="Template" hint="Controls which theme layout this page opens with in the builder.">
+                  <Select value={editingPageTemplateId} onChange={(event) => setEditingPageTemplateId(event.target.value)}>
+                    {templateOptions.map((template) => (
+                      <option key={template.id} value={template.id}>{template.name}</option>
+                    ))}
+                  </Select>
+                </Field>
+              ) : null}
               <Checkbox
                 label="Set as homepage"
                 checked={editingPageIsHomePage}
-                onChange={(event) => setEditingPageIsHomePage(event.target.checked)}
+                onChange={(event) => {
+                  const checked = event.target.checked;
+                  setEditingPageIsHomePage(checked);
+                  setEditingPageTemplateId(defaultTemplateId(checked));
+                }}
               />
               <div className="flex justify-end gap-2">
                 <Button type="button" variant="secondary" onClick={() => setEditingPage(null)}>Cancel</Button>
@@ -860,11 +915,11 @@ export function WebsiteWorkspace({
           <section className="grid items-start gap-4 xl:grid-cols-[minmax(280px,0.34fr)_minmax(0,1fr)]">
             <Card className="overflow-hidden border-primary/15 bg-surface shadow-sm shadow-slate-950/5">
               <div className="rounded-lg border bg-surface-secondary/60 p-4">
-                <div className="flex size-11 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                  <Palette className="size-5" />
+                <div className="flex size-10 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+                  <Palette className="size-[18px]" />
                 </div>
-                <h2 className="mt-5 text-2xl font-black text-foreground">Theme studio</h2>
-                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                <h2 className="mt-4 text-lg font-bold text-foreground">Theme studio</h2>
+                <p className="mt-2 text-[12.5px] leading-5 text-muted-foreground">
                   Install platform themes, customize drafts, edit source, and publish only when ready.
                 </p>
               </div>
@@ -906,8 +961,8 @@ export function WebsiteWorkspace({
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
-                          <h3 className="text-3xl font-black tracking-normal text-foreground">{currentTheme.name}</h3>
-                          <p className="mt-1 text-sm text-muted-foreground">
+                          <h3 className="text-xl font-bold tracking-tight text-foreground">{currentTheme.name}</h3>
+                          <p className="mt-1 text-[12.5px] text-muted-foreground">
                             Version {currentTheme.activeVersion?.versionNumber ?? "draft"} · {currentTheme.themePackage.name}
                           </p>
                         </div>
@@ -983,47 +1038,44 @@ export function WebsiteWorkspace({
                         {theme._count.revisions} changes · {new Date(theme.updatedAt).toLocaleDateString()}
                       </td>
                       <td>
-                        <div className="flex flex-wrap justify-end gap-2">
-                          <Button asChild type="button" size="sm" variant="secondary">
+                        <div className="flex flex-wrap justify-end gap-1">
+                          <Button asChild type="button" size="icon" variant="secondary" aria-label={`Customize ${theme.name}`}>
                             <Link href={`/websites/${id}/themes/${theme.id}/customize`}>
                               <Palette className="size-4" />
-                              Customize
                             </Link>
                           </Button>
-                          <Button asChild type="button" size="sm" variant="secondary">
-                            <Link href={`/websites/${id}/themes/${theme.id}/preview`} target="_blank" rel="noreferrer" aria-label={`Preview ${theme.name}`}>
+                          <Button asChild type="button" size="icon" variant="secondary" aria-label={`Preview ${theme.name}`}>
+                            <Link href={`/websites/${id}/themes/${theme.id}/preview`} target="_blank" rel="noreferrer">
                               <Eye className="size-4" />
                             </Link>
                           </Button>
-                          <Button type="button" size="sm" variant="secondary" onClick={() => void duplicateTheme(theme)}>
+                          <IconButton label={`Duplicate ${theme.name}`} onClick={() => void duplicateTheme(theme)}>
                             <Copy className="size-4" />
-                          </Button>
-                          <Button asChild type="button" size="sm" variant="secondary">
-                            <Link href={`/websites/${id}/themes/${theme.id}/code`} target="_blank" rel="noreferrer" aria-label={`Edit ${theme.name} code`}>
+                          </IconButton>
+                          <Button asChild type="button" size="icon" variant="secondary" aria-label={`Edit ${theme.name} code`}>
+                            <Link href={`/websites/${id}/themes/${theme.id}/code`} target="_blank" rel="noreferrer">
                               <Code2 className="size-4" />
                             </Link>
                           </Button>
-                          <Button type="button" size="sm" variant="secondary" onClick={() => void openThemeHistory(theme)}>
+                          <IconButton label={`View ${theme.name} history`} onClick={() => void openThemeHistory(theme)}>
                             <History className="size-4" />
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
+                          </IconButton>
+                          <IconButton
+                            label={`Publish ${theme.name}`}
+                            variant="primary"
                             disabled={theme.status === "PUBLISHED"}
                             onClick={() => void publishTheme(theme)}
                           >
                             <Rocket className="size-4" />
-                            Publish
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="danger"
+                          </IconButton>
+                          <IconButton
+                            label={`Delete ${theme.name}`}
+                            className="text-destructive hover:bg-destructive/10 hover:text-destructive"
                             disabled={theme.status === "PUBLISHED"}
                             onClick={() => setConfirm({ title: "Delete theme", description: `Delete ${theme.name}?`, action: () => void deleteTheme(theme) })}
                           >
                             <Trash2 className="size-4" />
-                          </Button>
+                          </IconButton>
                         </div>
                       </td>
                     </tr>
@@ -1199,17 +1251,26 @@ export function WebsiteWorkspace({
             <form className="grid gap-4" onSubmit={saveWebsite}>
               <Field label="Name"><Input value={name} onChange={(event) => setName(event.target.value)} required /></Field>
               <Field label="Slug"><Input value={slug} onChange={(event) => setSlug(slugify(event.target.value))} required /></Field>
-              <div className="flex flex-wrap gap-2">
-                <Button type="submit">Save settings</Button>
-                <Button
-                  type="button"
-                  variant="danger"
-                  onClick={() => setConfirm({ title: "Archive website", description: "Archive this website record?", action: archiveWebsite })}
-                >
-                  Archive website
-                </Button>
-              </div>
+              <Button type="submit" className="w-fit">Save settings</Button>
             </form>
+
+            <div className="h-px bg-border" />
+
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/20 bg-destructive/[0.04] p-3.5">
+              <div>
+                <p className="text-[12.5px] font-semibold text-foreground">Archive website</p>
+                <p className="mt-0.5 max-w-sm text-[11.5px] leading-5 text-muted-foreground">
+                  Hides this website from visitors and removes it from active listings. It can be restored later.
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="danger"
+                onClick={() => setConfirm({ title: "Archive website", description: "Archive this website record?", action: archiveWebsite })}
+              >
+                Archive website
+              </Button>
+            </div>
           </Card>
 
           <Card title="Record details" eyebrow="Metadata">
@@ -1286,90 +1347,6 @@ function WebsiteViewActions({
   );
 }
 
-function WebsiteViewPanel({
-  customDomainUrl,
-  portalPreviewUrl,
-  verifiedDomain,
-}: {
-  customDomainUrl: string | null;
-  portalPreviewUrl: string;
-  verifiedDomain: DomainSummary | null;
-}) {
-  return (
-    <Card className="gap-3">
-      <SectionHeader
-        title="View website"
-        description="Open the live custom domain when it is connected, or use the portal test URL before DNS is ready."
-        actions={verifiedDomain ? <Badge tone="success">custom domain connected</Badge> : <Badge tone="warning">custom domain not connected</Badge>}
-      />
-      <div className="grid gap-3 lg:grid-cols-2">
-        <ViewUrlRow
-          icon={<Globe2 className="size-4" />}
-          label="Custom domain"
-          value={customDomainUrl ?? "Connect and verify a custom domain first"}
-          href={customDomainUrl}
-        />
-        <ViewUrlRow
-          icon={<ExternalLink className="size-4" />}
-          label="Portal test URL"
-          value={portalPreviewUrl}
-          href={portalPreviewUrl}
-        />
-      </div>
-    </Card>
-  );
-}
-
-function ViewUrlRow({
-  icon,
-  label,
-  value,
-  href,
-}: {
-  icon: ReactNode;
-  label: string;
-  value: string;
-  href: string | null;
-}) {
-  async function copyValue() {
-    if (!href || typeof navigator === "undefined" || !navigator.clipboard) {
-      return;
-    }
-
-    await navigator.clipboard.writeText(href);
-    toast.success("Copied");
-  }
-
-  return (
-    <div className="grid gap-2 rounded-lg border bg-surface-secondary/35 p-3">
-      <div className="flex items-center gap-2 text-[12px] font-semibold text-foreground">
-        {icon}
-        {label}
-      </div>
-      <p className="min-h-5 break-all text-[12px] leading-5 text-muted-foreground">{value}</p>
-      <div className="flex flex-wrap gap-2">
-        {href ? (
-          <Button asChild size="sm" variant="secondary">
-            <a href={href} target="_blank" rel="noreferrer">
-              <Eye className="size-4" />
-              View
-            </a>
-          </Button>
-        ) : (
-          <Button type="button" size="sm" variant="secondary" disabled>
-            <Eye className="size-4" />
-            View
-          </Button>
-        )}
-        <Button type="button" size="sm" variant="ghost" disabled={!href} onClick={() => void copyValue()}>
-          <Copy className="size-4" />
-          Copy
-        </Button>
-      </div>
-    </div>
-  );
-}
-
 function DomainSetupCard({
   domain,
   website,
@@ -1422,9 +1399,10 @@ function DomainSetupCard({
         </Badge>
       </div>
 
-      <div className="grid gap-3">
+      <div className="grid gap-4">
         <DnsRecordStep
-          title="Optional: Verify ownership"
+          index={1}
+          title="Verify ownership (optional)"
           helper="Use this when you want portal-side ownership proof. Render verification plus A/CNAME routing can still connect the domain."
           rows={[
             ["Type", "TXT"],
@@ -1433,7 +1411,8 @@ function DomainSetupCard({
           ]}
         />
         <DnsRecordStep
-          title="Step 2: Point the root domain"
+          index={2}
+          title="Point the root domain"
           helper="Use this for root domains when your DNS provider cannot use CNAME flattening, ALIAS, or ANAME."
           rows={[
             ["Type", "A"],
@@ -1442,7 +1421,8 @@ function DomainSetupCard({
           ]}
         />
         <DnsRecordStep
-          title={isWwwDomain ? "Step 2: Point the www domain" : "Alternative: Use a CNAME"}
+          index={3}
+          title={isWwwDomain ? "Point the www subdomain" : "Or use a CNAME (alternative)"}
           helper={isWwwDomain ? "Use this for www or another subdomain." : "Use this only if your DNS provider supports CNAME flattening, ALIAS, or ANAME at the root."}
           rows={[
             ["Type", "CNAME"],
@@ -1458,10 +1438,12 @@ function DomainSetupCard({
 }
 
 function DnsRecordStep({
+  index,
   title,
   helper,
   rows,
 }: {
+  index: number;
   title: string;
   helper: string;
   rows: Array<[string, string]>;
@@ -1476,22 +1458,31 @@ function DnsRecordStep({
   }
 
   return (
-    <div className="grid gap-3 rounded-lg border bg-surface p-3">
-      <div>
-        <h3 className="text-[12.5px] font-semibold text-foreground">{title}</h3>
-        <p className="mt-1 text-[12px] leading-5 text-muted-foreground">{helper}</p>
-      </div>
-      <div className="grid gap-2">
-        {rows.map(([label, value]) => (
-          <div key={`${title}-${label}`} className="grid gap-2 rounded-md border bg-surface-secondary/40 p-2 sm:grid-cols-[74px_minmax(0,1fr)_auto] sm:items-center">
-            <span className="text-[11px] font-semibold uppercase tracking-[0.04em] text-muted-foreground">{label}</span>
-            <code className="min-w-0 break-all rounded bg-surface px-2 py-1 text-[12px] text-foreground">{value}</code>
-            <Button type="button" variant="ghost" size="sm" onClick={() => void copyValue(value)}>
-              <Copy className="size-4" />
-              Copy
-            </Button>
-          </div>
-        ))}
+    <div className="flex gap-3">
+      <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-bold text-foreground">
+        {index}
+      </span>
+      <div className="grid min-w-0 flex-1 gap-2.5">
+        <div>
+          <h3 className="text-[12.5px] font-semibold text-foreground">{title}</h3>
+          <p className="mt-0.5 text-[12px] leading-5 text-muted-foreground">{helper}</p>
+        </div>
+        <div className="divide-y overflow-hidden rounded-lg border">
+          {rows.map(([label, value]) => (
+            <div key={`${title}-${label}`} className="flex items-center gap-2 px-2.5 py-1.5">
+              <span className="w-14 shrink-0 text-[11px] font-semibold uppercase tracking-[0.04em] text-muted-foreground">{label}</span>
+              <code className="min-w-0 flex-1 truncate text-[12px] text-foreground" title={value}>{value}</code>
+              <button
+                type="button"
+                aria-label={`Copy ${label}`}
+                className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-surface-secondary hover:text-foreground"
+                onClick={() => void copyValue(value)}
+              >
+                <Copy className="size-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );

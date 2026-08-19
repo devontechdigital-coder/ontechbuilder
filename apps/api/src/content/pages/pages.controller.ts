@@ -32,6 +32,7 @@ export class PagesController {
       slug: input.slug,
       parentId: input.parentId,
       isHomePage: input.isHomePage,
+      templateId: input.templateId,
     });
   }
 
@@ -91,6 +92,7 @@ export class PagesController {
       parentId: input.parentId,
       isHomePage: input.isHomePage,
       status: input.status,
+      templateId: input.templateId,
     });
   }
 

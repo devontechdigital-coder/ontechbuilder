@@ -486,6 +486,7 @@ model Page {
   publishedVersionId String?    @db.Uuid
   title              String
   slug               String
+  templateId         String?
   seo                Json       @default("{}")
   status             PageStatus @default(DRAFT)
   createdAt          DateTime   @default(now())

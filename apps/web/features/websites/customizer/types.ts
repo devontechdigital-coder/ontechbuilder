@@ -60,6 +60,7 @@ export type CustomizerPageOption = {
   slug: string;
   status: "DRAFT" | "PUBLISHED" | "ARCHIVED" | "THEME";
   source: "page" | "template";
+  templateId?: string | null;
 };
 
 export type Viewport = "desktop" | "tablet" | "mobile";

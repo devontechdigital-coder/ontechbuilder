@@ -3,7 +3,7 @@
 import { ArrowLeft, ChevronDown, Clipboard, Grid2x2, Laptop, LayoutGrid, PanelLeftClose, PanelLeftOpen, Redo2, Settings2, Smartphone, Tablet, Undo2 } from "lucide-react";
 import { motion } from "framer-motion";
 import { useRouter } from "next/navigation";
-import { use, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import toast from "react-hot-toast";
 import { Badge } from "../../components/ui/display";
@@ -52,14 +52,15 @@ interface MeResponse {
 }
 
 export function ThemeCustomizerPage({
-  params,
+  websiteId,
+  themeId,
   initialPageId,
 }: {
-  params: Promise<{ id: string; themeId: string }>;
+  websiteId: string;
+  themeId: string;
   /** Preselects this real page (e.g. the page-builder route hands off a specific page) instead of defaulting to the first page option. */
   initialPageId?: string;
 }) {
-  const { id: websiteId, themeId } = use(params);
   const router = useRouter();
   const [me, setMe] = useState<MeResponse | null>(null);
   const [website, setWebsite] = useState<WebsiteSummary | null>(null);

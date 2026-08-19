@@ -35,6 +35,7 @@ export interface PageSummary {
   parentId: string | null;
   title: string;
   slug: string;
+  templateId: string | null;
   status: "DRAFT" | "PUBLISHED" | "ARCHIVED";
   draftVersionId: string | null;
   publishedVersionId: string | null;

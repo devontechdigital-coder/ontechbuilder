@@ -101,6 +101,7 @@ export function getAllGroupSections(
 export function resolvePageTemplateId(page: CustomizerPageOption | null): string {
   if (!page) return "index";
   if (page.source === "template") return page.id.replace(/^template-/, "");
+  if (page.templateId) return page.templateId;
   return page.slug === "home" || page.slug === "" ? "index" : "page";
 }
 
@@ -326,7 +327,7 @@ export function setNestedValue(source: Record<string, unknown>, path: string, va
   return clone;
 }
 
-type TemplateDefinition = { id: string; name: string };
+export type TemplateDefinition = { id: string; name: string };
 
 /**
  * The page switcher shows every real CMS page PLUS one entry per template the
@@ -342,7 +343,7 @@ export function getCustomizerPageOptions(pages: PageSummary[], draft: ThemeDraft
       if (second.slug === "home") return 1;
       return first.title.localeCompare(second.title);
     })
-    .map((page) => ({ id: page.id, label: page.title, slug: page.slug, status: page.status, source: "page" }));
+    .map((page) => ({ id: page.id, label: page.title, slug: page.slug, status: page.status, source: "page", templateId: page.templateId }));
 
   const hasHomePage = pageEntries.some((page) => page.slug === "home" || page.slug === "");
   const templateEntries: CustomizerPageOption[] = getTemplateDefinitions(draft)
@@ -359,11 +360,11 @@ export function getCustomizerPageOptions(pages: PageSummary[], draft: ThemeDraft
   return combined.length ? combined : [{ id: "template-home", label: "Home page", slug: "", status: "THEME", source: "template" }];
 }
 
-function isHomeTemplateId(id: string) {
+export function isHomeTemplateId(id: string) {
   return id === "index" || id === "home";
 }
 
-function getTemplateDefinitions(draft: ThemeDraftSummary | null): TemplateDefinition[] {
+export function getTemplateDefinitions(draft: ThemeDraftSummary | null): TemplateDefinition[] {
   const fromManifest = draft?.manifest?.templateDefinitions;
   if (Array.isArray(fromManifest)) {
     const parsed = fromManifest.filter(isTemplateDefinition);

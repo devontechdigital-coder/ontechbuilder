@@ -82,7 +82,7 @@ export default function BuilderPage({ params }: BuilderPageProps) {
     );
   }
 
-  return <ThemeCustomizerPage params={Promise.resolve({ id: page.websiteId, themeId })} initialPageId={pageId} />;
+  return <ThemeCustomizerPage websiteId={page.websiteId} themeId={themeId} initialPageId={pageId} />;
 }
 
 function BuilderResolveState({ description, title, websiteId }: { description: string; title: string; websiteId?: string }) {
