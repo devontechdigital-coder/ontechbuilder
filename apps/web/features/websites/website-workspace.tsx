@@ -1424,8 +1424,8 @@ function DomainSetupCard({
 
       <div className="grid gap-3">
         <DnsRecordStep
-          title="Step 1: Verify ownership"
-          helper="Required before this domain can be marked connected."
+          title="Optional: Verify ownership"
+          helper="Use this when you want portal-side ownership proof. Render verification plus A/CNAME routing can still connect the domain."
           rows={[
             ["Type", "TXT"],
             ["Name", verificationName],
@@ -1452,7 +1452,7 @@ function DomainSetupCard({
         />
       </div>
 
-      <Alert tone="info">DNS changes can take a few minutes to propagate. Refresh DNS checks the TXT ownership record plus the CNAME or configured A record before marking the domain connected.</Alert>
+      <Alert tone="info">DNS changes can take a few minutes to propagate. Refresh DNS checks the CNAME or configured A record before marking the domain connected.</Alert>
     </Card>
   );
 }

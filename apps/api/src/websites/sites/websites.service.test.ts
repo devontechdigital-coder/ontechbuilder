@@ -443,7 +443,7 @@ describe("DomainsService behavior inside WebsitesService", () => {
     ).rejects.toBeInstanceOf(ConflictException);
   });
 
-  it("verifies a domain only when DNS ownership and routing records match", async () => {
+  it("verifies a domain when DNS routing records match", async () => {
     const update = vi.fn().mockResolvedValue({ id: "domain-a", verificationStatus: DomainVerificationStatus.VERIFIED });
     const prisma = {
       domain: {
@@ -468,6 +468,48 @@ describe("DomainsService behavior inside WebsitesService", () => {
 
     expect(dnsResolver.resolveTxt).toHaveBeenCalledWith("_stackbuilder.example.com");
     expect(dnsResolver.resolveCname).toHaveBeenCalledWith("example.com");
+    expect(update).toHaveBeenCalledWith({
+      where: {
+        id: "domain-a",
+        tenantId: "tenant-a",
+      },
+      data: {
+        status: DomainStatus.VERIFIED,
+        verificationStatus: DomainVerificationStatus.VERIFIED,
+        verifiedAt: expect.any(Date),
+      },
+      select: expect.any(Object),
+    });
+  });
+
+  it("verifies a domain when the A record matches even without TXT ownership", async () => {
+    const update = vi.fn().mockResolvedValue({ id: "domain-a", verificationStatus: DomainVerificationStatus.VERIFIED });
+    const prisma = {
+      domain: {
+        findFirstOrThrow: vi.fn().mockResolvedValue({
+          id: "domain-a",
+          tenantId: "tenant-a",
+          hostname: "example.com",
+          verificationToken: "token-a",
+          website: { slug: "main-site" },
+        }),
+        update,
+      },
+    };
+    const dnsResolver = {
+      resolve4: vi.fn().mockResolvedValue(["216.24.57.1"]),
+      resolveCname: vi.fn().mockResolvedValue([]),
+      resolveTxt: vi.fn().mockResolvedValue([]),
+    };
+    const service = new WebsitesService(
+      prisma as never,
+      createAccess() as never,
+      dnsResolver,
+      { aRecordIp: "216.24.57.1" },
+    );
+
+    await service.markDomainVerified("user-a", "tenant-a", "domain-a");
+
     expect(update).toHaveBeenCalledWith({
       where: {
         id: "domain-a",

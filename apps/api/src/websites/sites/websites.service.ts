@@ -612,18 +612,16 @@ export class WebsitesService {
     );
     const expectedARecordIp = this.dnsSettings.aRecordIp ?? process.env.CUSTOM_DOMAIN_A_RECORD_IP;
 
-    const [txtRecords, cnameRecords, aRecords] = await Promise.all([
+    const [, cnameRecords, aRecords] = await Promise.all([
       resolveDns(() => this.dnsResolver.resolveTxt(verificationName)),
       resolveDns(() => this.dnsResolver.resolveCname(domain.hostname)),
       expectedARecordIp ? resolveDns(() => this.dnsResolver.resolve4(domain.hostname)) : Promise.resolve([]),
     ]);
-    const flattenedTxtRecords = txtRecords.map((record) => record.join(""));
-    const hasOwnershipToken = flattenedTxtRecords.includes(domain.verificationToken);
     const hasCnameTarget = cnameRecords.map(normalizeDnsHostname).includes(expectedCname);
     const hasARecordTarget = expectedARecordIp ? aRecords.includes(expectedARecordIp) : false;
 
     return {
-      connected: hasOwnershipToken && (hasCnameTarget || hasARecordTarget),
+      connected: hasCnameTarget || hasARecordTarget,
     };
   }
 }
