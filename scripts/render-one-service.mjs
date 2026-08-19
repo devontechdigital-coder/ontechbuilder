@@ -47,6 +47,11 @@ const server = createServer((request, response) => {
     return;
   }
 
+  if (requestUrl.pathname.startsWith("/_next/")) {
+    proxyRequest(request, response, shouldUseRendererAssets(request) ? rendererPort : webPort, requestUrl);
+    return;
+  }
+
   if (requestUrl.pathname === "/site" || requestUrl.pathname.startsWith("/site/")) {
     requestUrl.pathname = requestUrl.pathname.replace(/^\/site/, "") || "/";
     requestUrl.pathname = requestUrl.pathname.replace(/^\/_preview(?=\/|$)/, "/preview");
@@ -150,6 +155,29 @@ function createProxyRequest(targetPort, incomingRequest, requestUrl, onResponse)
     },
     onResponse,
   );
+}
+
+function shouldUseRendererAssets(request) {
+  if (isPublicSiteHost(request.headers.host)) {
+    return true;
+  }
+
+  const referer = request.headers.referer ?? request.headers.referrer;
+  const refererPath = getHeaderUrlPath(referer);
+
+  return refererPath === "/site" || refererPath.startsWith("/site/");
+}
+
+function getHeaderUrlPath(value) {
+  if (typeof value !== "string" || !value) {
+    return "";
+  }
+
+  try {
+    return new URL(value).pathname;
+  } catch {
+    return "";
+  }
 }
 
 function isPublicSiteHost(hostHeader) {

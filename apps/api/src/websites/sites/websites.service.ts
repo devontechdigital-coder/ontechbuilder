@@ -195,8 +195,9 @@ export class WebsitesService {
     const domain = await this.prisma.domain.findFirst({
       where: {
         normalizedHostname,
-        status: DomainStatus.VERIFIED,
-        verificationStatus: DomainVerificationStatus.VERIFIED,
+        status: {
+          not: DomainStatus.DISABLED,
+        },
         website: {
           status: {
             not: WebsiteStatus.ARCHIVED,
