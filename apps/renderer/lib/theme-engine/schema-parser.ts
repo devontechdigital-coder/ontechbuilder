@@ -351,30 +351,6 @@ function isThemeSettingDefinition(value: unknown): value is ThemeSetting {
 const option = (value: string, label: string) => ({ value, label });
 const field = (group: string, setting: Omit<ThemeSetting, "group">): ThemeSetting => ({ group, ...setting });
 
-/**
- * One block type drives every menu (header and footer alike): nesting comes
- * from each block's drag-assigned `depth`, not from separate "link" vs
- * "menu with submenu" types, so any item can gain or lose children just by
- * being dragged.
- */
-const NAV_LINK_SETTINGS: ThemeSetting[] = [
-  field("Link", { type: "text", id: "label", label: "Label", default: "Menu item" }),
-  field("Link", { type: "url", id: "href", label: "Link", default: "#" }),
-  field("Link", {
-    type: "select",
-    id: "target",
-    label: "Open in",
-    options: [option("_self", "Same tab"), option("_blank", "New tab")],
-    default: "_self",
-  }),
-];
-
-const navLink = (label: string, href: string, depth = 0) => ({
-  type: "nav_link",
-  ...(depth ? { depth } : {}),
-  settings: { label, href, target: "_self" },
-});
-
 export const ASTER_GLOBAL_SETTINGS: ThemeSetting[] = [
   field("Global", { type: "color", id: "colorPrimary", label: "Primary color", default: "#C89B3C" }),
   field("Global", { type: "color", id: "colorSecondary", label: "Secondary color", default: "#8FA396" }),
@@ -631,31 +607,85 @@ export const COPORA_SECTIONS: SectionSchema[] = [
     name: "Header",
     category: "Header",
     settings: [
-      field("Brand", { type: "image", id: "logoImage", label: "Logo image" }),
+      field("Brand", { type: "image", id: "logoImage", label: "Logo image (desktop)", info: "Leave empty to use the text wordmark below." }),
+      field("Brand", { type: "image", id: "mobileLogoImage", label: "Logo image (mobile)", info: "Optional — falls back to the desktop logo (or wordmark) when empty." }),
       field("Brand", { type: "text", id: "logoText", label: "Wordmark text", default: "Copora" }),
       field("Contact", { type: "text", id: "phone", label: "Phone number", default: "+123 456 7891" }),
       field("Contact", { type: "text", id: "ctaLabel", label: "CTA button label", default: "Contact now" }),
       field("Contact", { type: "url", id: "ctaHref", label: "CTA button link", default: "#contact" }),
+      field("Layout", {
+        type: "select",
+        id: "layout",
+        label: "Header layout",
+        options: [option("classic", "Classic (logo left, nav center, actions right)"), option("centered", "Centered (logo center, nav split around it)")],
+        default: "classic",
+      }),
+      field("Layout", {
+        type: "select",
+        id: "mobileMenuStyle",
+        label: "Mobile menu style",
+        options: [option("inline", "Inline dropdown (below header)"), option("overlay", "Full-screen overlay")],
+        default: "inline",
+      }),
       field("Behavior", { type: "checkbox", id: "sticky", label: "Stick to top on scroll", default: true }),
       field("Behavior", { type: "checkbox", id: "transparentOnHero", label: "Transparent over the hero section", default: false }),
+      field("Behavior", { type: "checkbox", id: "showBorder", label: "Show bottom border", default: true }),
+      field("Style", { type: "color", id: "backgroundColor", label: "Background color override", info: "Leave empty to use the theme's global colors." }),
+      field("Style", { type: "color", id: "textColor", label: "Text color override", info: "Leave empty to use the theme's global colors." }),
     ],
-    blocks: [{ type: "nav_link", name: "Nav link", settings: NAV_LINK_SETTINGS }],
-    nestableBlockTypes: ["nav_link"],
-    maxBlocks: 40,
+    // The real theme has no depth/nesting concept for nav — a plain "nav_link" is a top-level
+    // link with no submenu, and "nav_menu" carries its own dropdown as a single "Label|/url"
+    // per line textarea (blank-line-separated "## Heading" groups for the mega style). This
+    // must mirror sections/Header/schema.ts's block contract exactly, or Header.tsx silently
+    // renders every block as a flat top-level link and multi-level menus never appear.
+    blocks: [
+      { type: "nav_link", name: "Nav link", settings: [field("Link", { type: "text", id: "label", label: "Label", default: "Menu item" }), field("Link", { type: "url", id: "href", label: "Link", default: "#" })] },
+      {
+        type: "nav_menu",
+        name: "Nav item with submenu",
+        settings: [
+          field("Link", { type: "text", id: "label", label: "Label", default: "Pages" }),
+          field("Submenu", {
+            type: "select",
+            id: "style",
+            label: "Submenu style",
+            options: [option("simple", "Simple dropdown"), option("mega", "Full mega menu (columns + featured panel)")],
+            default: "simple",
+          }),
+          field("Submenu", {
+            type: "textarea",
+            id: "columnsText",
+            label: "Submenu links",
+            info: 'Simple dropdown: one "Label|/url" per line. Mega menu: group with "## Heading" lines, blank line between groups.',
+            default: "Overview|/",
+          }),
+          field("Featured panel (mega style only)", { type: "image", id: "featuredImage", label: "Featured panel image" }),
+          field("Featured panel (mega style only)", { type: "text", id: "featuredTitle", label: "Featured panel title", default: "" }),
+          field("Featured panel (mega style only)", { type: "textarea", id: "featuredDescription", label: "Featured panel description", default: "" }),
+          field("Featured panel (mega style only)", { type: "text", id: "featuredLinkLabel", label: "Featured panel link label", default: "" }),
+          field("Featured panel (mega style only)", { type: "url", id: "featuredLinkHref", label: "Featured panel link URL", default: "" }),
+        ],
+      },
+    ],
+    maxBlocks: 8,
     defaultBlocks: [
-      navLink("Home", "/"),
-      navLink("About", "/about"),
-      navLink("Our Story", "/about#story", 1),
-      navLink("Mission & Vision", "/about#mission", 1),
-      navLink("Our Team", "/about#team", 1),
-      navLink("Case Studies", "/case-studies"),
-      navLink("All Case Studies", "/case-studies", 1),
-      navLink("Featured", "/case-studies#featured", 1),
-      navLink("By Industry", "/case-studies#industry", 1),
-      navLink("Blog", "/blog"),
-      navLink("All Posts", "/blog", 1),
-      navLink("Growth", "/blog?tag=growth", 1),
-      navLink("Strategy", "/blog?tag=strategy", 1),
+      { type: "nav_link", settings: { label: "Home", href: "/" } },
+      { type: "nav_menu", settings: { label: "About", style: "simple", columnsText: "Our Story|/about#story\nMission & Vision|/about#mission\nOur Team|/about#team" } },
+      { type: "nav_menu", settings: { label: "Case Studies", style: "simple", columnsText: "All Case Studies|/case-studies\nFeatured|/case-studies#featured\nBy Industry|/case-studies#industry" } },
+      { type: "nav_menu", settings: { label: "Blog", style: "simple", columnsText: "All Posts|/blog\nGrowth|/blog?tag=growth\nStrategy|/blog?tag=strategy\nMarketing|/blog?tag=marketing" } },
+      {
+        type: "nav_menu",
+        settings: {
+          label: "Pages",
+          style: "mega",
+          columnsText:
+            "## Pages\nHome|/\nAbout|/about\nService Detail|/services\nBlog|/blog\nBlog Details|/blog/post\n\n## Other Pages\nCase Studies|/case-studies\nContact|/contact\nError 404|/404\nPassword Protected|/protected\nSupport|/support",
+          featuredTitle: "Book a free consultation",
+          featuredDescription: "Talk to our consultants about your growth strategy.",
+          featuredLinkLabel: "Get in touch",
+          featuredLinkHref: "/contact",
+        },
+      },
     ],
   },
   {
@@ -993,29 +1023,34 @@ export const COPORA_SECTIONS: SectionSchema[] = [
       field("Style", { type: "text", id: "credit", label: "Credit line", default: "Developed by Aster Theme Studio" }),
       field("Style", { type: "select", id: "style", label: "Style", options: [option("dark", "Dark"), option("light", "Light")], default: "dark" }),
     ],
+    // Mirrors sections/Footer/schema.ts's block contract: a "link_column" carries
+    // its own links as ONE "Label|/url" per line in a textarea, where a line
+    // indented 2+ spaces nests under the link directly above it (see
+    // parseNestedLinks in the theme's blockHelpers) — not the platform's
+    // depth-nested block hierarchy used elsewhere.
     blocks: [
-      // Top-level nav links become the footer's link columns; anything nested under
-      // one becomes that column's links — same single block type as the header.
-      { type: "nav_link", name: "Nav link", settings: NAV_LINK_SETTINGS },
+      {
+        type: "link_column",
+        name: "Link column",
+        settings: [
+          field("Column", { type: "text", id: "heading", label: "Column heading", default: "Pages" }),
+          field("Column", {
+            type: "textarea",
+            id: "linksJson",
+            label: "Links",
+            info: 'One "Label|/url" per line. Indent a line with 2+ spaces to nest it as a submenu item under the link above it.',
+            default: "Home|/\nAbout|/about\nBlog|/blog",
+          }),
+        ],
+      },
       { type: "social_link", name: "Social link", settings: [field("Content", { type: "icon", id: "icon", label: "Icon" }), field("Content", { type: "url", id: "href", label: "URL", default: "#" }), field("Content", { type: "text", id: "label", label: "Accessible label", default: "Follow us" })] },
       { type: "recent_work", name: "Recent work image", settings: [field("Content", { type: "image", id: "image", label: "Image" })] },
     ],
-    nestableBlockTypes: ["nav_link"],
-    maxBlocks: 40,
+    maxBlocks: 16,
     defaultBlocks: [
-      navLink("Company", "/"),
-      navLink("About", "/about", 1),
-      navLink("Case Studies", "/case-studies", 1),
-      navLink("Blog", "/blog", 1),
-      navLink("Services", "/services"),
-      navLink("Business Strategy", "/services/strategy", 1),
-      navLink("Process Optimization", "/services/process", 1),
-      navLink("Financial Advisory", "/services/financial", 1),
-      navLink("Marketing Research", "/services/marketing", 1),
-      navLink("Support", "/contact"),
-      navLink("Contact", "/contact", 1),
-      navLink("Error 404", "/404", 1),
-      navLink("Password Protected", "/protected", 1),
+      { type: "link_column", settings: { heading: "Company", linksJson: "About|/about\n  Our Story|/about#story\n  Our Team|/about#team\nCase Studies|/case-studies\nBlog|/blog" } },
+      { type: "link_column", settings: { heading: "Services", linksJson: "Business Strategy|/services/strategy\nProcess Optimization|/services/process\nFinancial Advisory|/services/financial\nMarketing Research|/services/marketing" } },
+      { type: "link_column", settings: { heading: "Support", linksJson: "Contact|/contact\n  General Enquiries|/contact?topic=general\n  Partnerships|/contact?topic=partnership\nError 404|/404\nPassword Protected|/protected" } },
       { type: "social_link", settings: { icon: "facebook", href: "#", label: "Facebook" } },
       { type: "social_link", settings: { icon: "instagram", href: "#", label: "Instagram" } },
       { type: "social_link", settings: { icon: "linkedin", href: "#", label: "LinkedIn" } },

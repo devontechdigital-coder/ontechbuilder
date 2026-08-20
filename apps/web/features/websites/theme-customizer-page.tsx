@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, ChevronDown, Clipboard, Grid2x2, Laptop, LayoutGrid, PanelLeftClose, PanelLeftOpen, Redo2, Settings2, Smartphone, Tablet, Undo2 } from "lucide-react";
+import { ArrowLeft, ChevronDown, Clipboard, Download, FileText, Grid2x2, Laptop, LayoutGrid, PanelLeftClose, PanelLeftOpen, Redo2, Settings2, Smartphone, Tablet, Undo2, Upload } from "lucide-react";
 import { motion } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -78,6 +78,7 @@ export function ThemeCustomizerPage({
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const canvasFrameRef = useRef<HTMLIFrameElement>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
   /**
    * Bumped every time the canvas frame announces itself (0 = never yet).
    * A plain boolean raced with the iframe's own `load` event: `load` fires
@@ -151,6 +152,42 @@ export function ThemeCustomizerPage({
   function changePage(nextPageId: string) {
     setSelectedPageId(nextPageId);
     setSelected({ kind: "theme" });
+  }
+
+  function exportPageSections() {
+    const payload = {
+      kind: "stackbuilder-page-sections",
+      version: 1,
+      pageTitle: selectedPage?.label ?? "Page",
+      templateId,
+      sections: groups.template,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${slugifyFileName(selectedPage?.label ?? "page")}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+    toast.success("Page exported");
+  }
+
+  function importPageSectionsFromFile(file: File) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(String(reader.result)) as { sections?: unknown };
+        if (!Array.isArray(parsed.sections)) {
+          throw new Error("File has no page sections to import");
+        }
+        updateGroup("template", () => parsed.sections as SectionInstance[]);
+        toast.success("Page imported");
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Import failed — not a valid page export file");
+      }
+    };
+    reader.onerror = () => toast.error("Could not read the selected file");
+    reader.readAsText(file);
   }
 
   function goBack() {
@@ -422,12 +459,26 @@ export function ThemeCustomizerPage({
 
   return (
     <main className="grid h-svh grid-rows-[56px_minmax(0,1fr)] overflow-hidden bg-background text-foreground">
+      <input
+        ref={importInputRef}
+        type="file"
+        accept="application/json"
+        className="sr-only"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) importPageSectionsFromFile(file);
+          event.target.value = "";
+        }}
+      />
       <TopBar
         canRedo={canRedo}
         canUndo={canUndo}
+        lockedToPage={Boolean(initialPageId)}
         onSelectThemeSettings={() => setSelected({ kind: "theme" })}
         onBack={goBack}
         onChangePage={changePage}
+        onExportPage={exportPageSections}
+        onImportPageClick={() => importInputRef.current?.click()}
         onPublish={() => void publishTheme()}
         onRedo={redo}
         onSave={() => void saveDraft()}
@@ -672,9 +723,12 @@ function BuilderLoadingState() {
 function TopBar({
   canRedo,
   canUndo,
+  lockedToPage,
   onSelectThemeSettings,
   onBack,
   onChangePage,
+  onExportPage,
+  onImportPageClick,
   onPublish,
   onRedo,
   onSave,
@@ -690,9 +744,13 @@ function TopBar({
 }: {
   canRedo: boolean;
   canUndo: boolean;
+  /** True when this customizer was opened from a specific page's builder link — the page switcher becomes a static label instead of an invitation to jump elsewhere. */
+  lockedToPage: boolean;
   onSelectThemeSettings: () => void;
   onBack: () => void;
   onChangePage: (pageId: string) => void;
+  onExportPage: () => void;
+  onImportPageClick: () => void;
   onPublish: () => void;
   onRedo: () => void;
   onSave: () => void;
@@ -730,7 +788,14 @@ function TopBar({
       </div>
 
       <div className="mx-auto hidden lg:block">
-        <PageSwitcher onChange={onChangePage} page={page} pageOptions={pageOptions} />
+        {lockedToPage ? (
+          <div className="flex items-center gap-1.5 rounded-md border bg-surface-secondary/60 px-3 py-1.5 text-[12.5px] font-medium text-foreground">
+            <FileText className="size-3.5 text-muted-foreground" />
+            <span className="max-w-52 truncate">{page?.label ?? "Page"}</span>
+          </div>
+        ) : (
+          <PageSwitcher onChange={onChangePage} page={page} pageOptions={pageOptions} />
+        )}
       </div>
 
       <div className="ml-auto flex items-center gap-1.5">
@@ -753,7 +818,7 @@ function TopBar({
           <Redo2 className="size-4" />
         </Button>
 
-        <MoreMenu settings={settings} />
+        <MoreMenu settings={settings} onExportPage={onExportPage} onImportPageClick={onImportPageClick} />
 
         <Button type="button" size="sm" variant="secondary" disabled={saving} onClick={onSave}>
           {saving ? "Saving…" : "Save"}
@@ -766,7 +831,15 @@ function TopBar({
   );
 }
 
-function MoreMenu({ settings }: { settings: Record<string, unknown> }) {
+function MoreMenu({
+  settings,
+  onExportPage,
+  onImportPageClick,
+}: {
+  settings: Record<string, unknown>;
+  onExportPage: () => void;
+  onImportPageClick: () => void;
+}) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -779,6 +852,17 @@ function MoreMenu({ settings }: { settings: Record<string, unknown> }) {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
+        <DropdownMenuLabel>Page</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={onExportPage}>
+          <Download className="size-3.5" />
+          Export page
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={onImportPageClick}>
+          <Upload className="size-3.5" />
+          Import page
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
         <DropdownMenuLabel>Draft tools</DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuItem
@@ -902,4 +986,13 @@ function viewportWidthClass(viewport: Viewport) {
   if (viewport === "mobile") return "max-w-[390px]";
   if (viewport === "tablet") return "max-w-[820px]";
   return "max-w-[1280px]";
+}
+
+function slugifyFileName(value: string) {
+  const slug = value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || "page";
 }
