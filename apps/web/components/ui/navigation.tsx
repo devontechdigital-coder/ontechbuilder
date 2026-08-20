@@ -58,14 +58,14 @@ export function Pagination({
   );
 }
 
-export function Table({ headers, children }: { headers: string[]; children: ReactNode }) {
+export function Table({ headers, children }: { headers: ReactNode[]; children: ReactNode }) {
   return (
     <div className="overflow-x-auto rounded-lg border bg-surface">
       <table className="w-full min-w-[640px] border-collapse text-sm">
         <thead>
           <tr className="bg-surface-secondary text-left text-xs font-bold uppercase text-muted-foreground">
-            {headers.map((header) => (
-              <th key={header} className="border-b px-3 py-3">
+            {headers.map((header, index) => (
+              <th key={index} className="border-b px-3 py-3">
                 {header}
               </th>
             ))}

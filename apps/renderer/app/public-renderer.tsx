@@ -60,6 +60,14 @@ async function renderSite(site: PublicSiteResponse | null, options: { eyebrow?: 
     if (themedMarkup) return themedMarkup;
   }
 
+  if (!site.page) {
+    if (site.themeEngine) {
+      const themed404 = await renderThemedPage(notFoundPage, site.themeEngine);
+      if (themed404) return themed404;
+    }
+    return <StatusPage title="Page not found" description="We couldn't find the page you were looking for." />;
+  }
+
   return (
     <main className="public-site">
       <section className="hero">
@@ -70,6 +78,16 @@ async function renderSite(site: PublicSiteResponse | null, options: { eyebrow?: 
     </main>
   );
 }
+
+/** Synthetic page fed to the theme's own "404" template — themes register this template id the same way "index"/"page" work (see resolvePageTemplateId). */
+const notFoundPage: NonNullable<PublicSiteResponse["page"]> = {
+  id: "404",
+  title: "Page not found",
+  slug: "404",
+  seo: null,
+  templateId: "404",
+  content: null,
+};
 
 /**
  * Real theme + section rendering. This calls the internal render-theme
@@ -124,6 +142,9 @@ function siteMetadata(site: PublicSiteResponse | null): Metadata {
   }
   if (site.website.status !== "PUBLISHED") {
     return { title: site.website.name };
+  }
+  if (!site.page) {
+    return { title: `Page not found – ${site.website.name}` };
   }
   const seo = (site.page?.seo ?? {}) as Record<string, unknown>;
   const metaTitle = typeof seo.metaTitle === "string" && seo.metaTitle.trim() ? seo.metaTitle : (site.page?.title ?? site.website.name);

@@ -61,6 +61,18 @@ interface PublishVersionInput extends ActorInput {
   versionId: string;
 }
 
+interface ListPagesInput extends ActorInput {
+  websiteId: string;
+  status?: unknown;
+  query?: unknown;
+  includeCounts?: unknown;
+}
+
+interface BulkPageActionInput extends ActorInput {
+  pageIds: unknown;
+  action: unknown;
+}
+
 interface VersionListInput extends ActorInput {
   pageId: string;
   limit?: unknown;
@@ -150,20 +162,67 @@ export class PagesService {
     }
   }
 
-  async listPages(input: ActorInput & { websiteId: string }) {
+  async listPages(input: ListPagesInput) {
     await this.access.assertWebsiteAccess(input.actorUserId, input.tenantId, input.websiteId);
+    const status = parseOptionalPageStatusFilter(input.status);
+    const query = optionalString(input.query, "q")?.trim();
+    const baseWhere: Prisma.PageWhereInput = {
+      tenantId: input.tenantId,
+      websiteId: input.websiteId,
+      ...(query
+        ? {
+            OR: [
+              { title: { contains: query, mode: "insensitive" } },
+              { slug: { contains: query, mode: "insensitive" } },
+            ],
+          }
+        : {}),
+    };
 
-    return this.prisma.page.findMany({
+    const data = await this.prisma.page.findMany({
       where: {
-        tenantId: input.tenantId,
-        websiteId: input.websiteId,
-        status: {
-          not: PageStatus.ARCHIVED,
-        },
+        ...baseWhere,
+        ...(status
+          ? { status }
+          : {
+              status: {
+                not: PageStatus.ARCHIVED,
+              },
+            }),
       },
       orderBy: [{ parentId: "asc" }, { title: "asc" }],
       select: pageListSelect,
     });
+
+    if (!parseOptionalQueryBoolean(input.includeCounts, "includeCounts")) {
+      return data;
+    }
+
+    const groupedCounts = await this.prisma.page.groupBy({
+      by: ["status"],
+      where: {
+        tenantId: input.tenantId,
+        websiteId: input.websiteId,
+      },
+      _count: {
+        _all: true,
+      },
+    });
+    const counts = {
+      all: groupedCounts.reduce((total, item) => total + (item.status === PageStatus.ARCHIVED ? 0 : item._count._all), 0),
+      DRAFT: 0,
+      PUBLISHED: 0,
+      ARCHIVED: 0,
+    };
+
+    for (const item of groupedCounts) {
+      counts[item.status] = item._count._all;
+    }
+
+    return {
+      data,
+      counts,
+    };
   }
 
   async getPage(actorUserId: string, tenantId: string, pageId: string) {
@@ -331,6 +390,212 @@ export class PagesService {
           status: true,
         },
       });
+    });
+  }
+
+  async clonePage(actorUserId: string, tenantId: string, pageId: string) {
+    await this.access.assertTenantMember(actorUserId, tenantId);
+
+    const source = await this.prisma.page.findFirst({
+      where: {
+        id: pageId,
+        tenantId,
+      },
+      select: {
+        id: true,
+        websiteId: true,
+        parentId: true,
+        title: true,
+        slug: true,
+        templateId: true,
+        seo: true,
+        draftVersion: {
+          select: {
+            content: true,
+          },
+        },
+        publishedVersion: {
+          select: {
+            content: true,
+          },
+        },
+      },
+    });
+
+    if (!source) {
+      throw new NotFoundException("Page was not found in this tenant");
+    }
+
+    const slug = await this.getUniquePageSlug(tenantId, source.websiteId, `${source.slug}-copy`);
+    const content = source.draftVersion?.content ?? source.publishedVersion?.content ?? null;
+
+    return this.prisma.$transaction(async (tx) => {
+      const page = await tx.page.create({
+        data: {
+          tenantId,
+          websiteId: source.websiteId,
+          ...(source.parentId ? { parentId: source.parentId } : {}),
+          title: `${source.title} copy`,
+          slug,
+          ...(source.templateId ? { templateId: source.templateId } : {}),
+          seo: source.seo as Prisma.InputJsonValue,
+          status: PageStatus.DRAFT,
+        },
+        select: pageSelect,
+      });
+
+      if (!content) {
+        return page;
+      }
+
+      const version = await tx.pageVersion.create({
+        data: {
+          pageId: page.id,
+          versionNumber: 1,
+          status: PageVersionStatus.DRAFT,
+          content: content as Prisma.InputJsonValue,
+          createdBy: actorUserId,
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      return tx.page.update({
+        where: {
+          id: page.id,
+          tenantId,
+        },
+        data: {
+          draftVersionId: version.id,
+        },
+        select: pageSelect,
+      });
+    });
+  }
+
+  async bulkPageAction(input: BulkPageActionInput) {
+    await this.access.assertTenantMember(input.actorUserId, input.tenantId);
+    const pageIds = parsePageIds(input.pageIds);
+    const action = parseBulkPageAction(input.action);
+
+    if (action === "DELETE") {
+      return this.deletePages(input.actorUserId, input.tenantId, pageIds);
+    }
+
+    const status = action === "PUBLISH" ? PageStatus.PUBLISHED : action === "DRAFT" ? PageStatus.DRAFT : PageStatus.ARCHIVED;
+    return this.prisma.$transaction(async (tx) => {
+      const pages = await tx.page.findMany({
+        where: {
+          id: {
+            in: pageIds,
+          },
+          tenantId: input.tenantId,
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      if (pages.length !== pageIds.length) {
+        throw new NotFoundException("One or more pages were not found in this tenant");
+      }
+
+      if (status === PageStatus.ARCHIVED) {
+        await tx.website.updateMany({
+          where: {
+            tenantId: input.tenantId,
+            homePageId: {
+              in: pageIds,
+            },
+          },
+          data: {
+            homePageId: null,
+          },
+        });
+      }
+
+      const result = await tx.page.updateMany({
+        where: {
+          id: {
+            in: pageIds,
+          },
+          tenantId: input.tenantId,
+        },
+        data: {
+          status,
+        },
+      });
+
+      return { count: result.count };
+    });
+  }
+
+  async deletePages(actorUserId: string, tenantId: string, pageIds: string[]) {
+    await this.access.assertTenantMember(actorUserId, tenantId);
+    const ids = parsePageIds(pageIds);
+
+    return this.prisma.$transaction(async (tx) => {
+      const pages = await tx.page.findMany({
+        where: {
+          id: {
+            in: ids,
+          },
+          tenantId,
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      if (pages.length !== ids.length) {
+        throw new NotFoundException("One or more pages were not found in this tenant");
+      }
+
+      await tx.website.updateMany({
+        where: {
+          tenantId,
+          homePageId: {
+            in: ids,
+          },
+        },
+        data: {
+          homePageId: null,
+        },
+      });
+      await tx.page.updateMany({
+        where: {
+          tenantId,
+          parentId: {
+            in: ids,
+          },
+        },
+        data: {
+          parentId: null,
+        },
+      });
+      await tx.page.updateMany({
+        where: {
+          id: {
+            in: ids,
+          },
+          tenantId,
+        },
+        data: {
+          draftVersionId: null,
+          publishedVersionId: null,
+        },
+      });
+      const result = await tx.page.deleteMany({
+        where: {
+          id: {
+            in: ids,
+          },
+          tenantId,
+        },
+      });
+
+      return { count: result.count };
     });
   }
 
@@ -690,6 +955,35 @@ export class PagesService {
       throw new BadRequestException("Page hierarchy is too deep");
     }
   }
+
+  private async getUniquePageSlug(tenantId: string, websiteId: string, baseSlug: string) {
+    const existingPages = await this.prisma.page.findMany({
+      where: {
+        tenantId,
+        websiteId,
+        slug: {
+          startsWith: baseSlug,
+        },
+      },
+      select: {
+        slug: true,
+      },
+    });
+    const existingSlugs = new Set(existingPages.map((page) => page.slug));
+
+    if (!existingSlugs.has(baseSlug)) {
+      return baseSlug;
+    }
+
+    for (let suffix = 2; suffix <= 500; suffix += 1) {
+      const slug = `${baseSlug}-${suffix}`;
+      if (!existingSlugs.has(slug)) {
+        return slug;
+      }
+    }
+
+    throw new ConflictException("Could not generate a unique page slug");
+  }
 }
 
 export const pageSelect = {
@@ -794,6 +1088,59 @@ function parsePageStatus(value: unknown): PageStatus {
   }
 
   return status as PageStatus;
+}
+
+function parseOptionalPageStatusFilter(value: unknown): PageStatus | undefined {
+  if (value === undefined || value === null || value === "" || value === "all") {
+    return undefined;
+  }
+
+  const status = requiredString(value, "status").toUpperCase();
+  if (!Object.values(PageStatus).includes(status as PageStatus)) {
+    throw new BadRequestException("status must be draft, published, archived, or all");
+  }
+
+  return status as PageStatus;
+}
+
+function parsePageIds(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    throw new BadRequestException("pageIds must be an array");
+  }
+
+  const ids = value.map((item) => requiredString(item, "pageId"));
+  const uniqueIds = Array.from(new Set(ids));
+  if (!uniqueIds.length) {
+    throw new BadRequestException("At least one page must be selected");
+  }
+
+  return uniqueIds;
+}
+
+function parseBulkPageAction(value: unknown): "PUBLISH" | "DRAFT" | "ARCHIVE" | "DELETE" {
+  const action = requiredString(value, "action").toUpperCase();
+
+  if (action !== "PUBLISH" && action !== "DRAFT" && action !== "ARCHIVE" && action !== "DELETE") {
+    throw new BadRequestException("action must be publish, draft, archive, or delete");
+  }
+
+  return action;
+}
+
+function parseOptionalQueryBoolean(value: unknown, field: string): boolean {
+  if (value === undefined || value === null || value === "") {
+    return false;
+  }
+
+  if (value === true || value === "true") {
+    return true;
+  }
+
+  if (value === false || value === "false") {
+    return false;
+  }
+
+  throw new BadRequestException(`${field} must be a boolean`);
 }
 
 function parseVersionContent(value: unknown): Prisma.InputJsonValue {

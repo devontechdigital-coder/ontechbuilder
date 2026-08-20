@@ -43,6 +43,16 @@ export interface PageSummary {
   updatedAt: string;
 }
 
+export interface PageListSummary {
+  data: PageSummary[];
+  counts: {
+    all: number;
+    DRAFT: number;
+    PUBLISHED: number;
+    ARCHIVED: number;
+  };
+}
+
 export interface ThemeInstallationSummary {
   id: string;
   tenantId: string;

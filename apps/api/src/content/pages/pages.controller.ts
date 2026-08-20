@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Inject, Param, Patch, Post, Query, Req, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Inject, Param, Patch, Post, Query, Req, UseGuards } from "@nestjs/common";
 import { MembershipRole } from "../../core/database/database.js";
 import { AuthGuard } from "../../identity/auth/auth.guard.js";
 import { getActiveTenant, getAuthenticatedUser } from "../../identity/auth/auth-context.js";
@@ -38,10 +38,23 @@ export class PagesController {
 
   @Get("websites/:websiteId/pages")
   @RequireRole(MembershipRole.VIEWER)
-  listPages(@Req() request: AuthenticatedRequest, @Param("websiteId") websiteId: string) {
+  listPages(
+    @Req() request: AuthenticatedRequest,
+    @Param("websiteId") websiteId: string,
+    @Query("status") status?: string,
+    @Query("q") query?: string,
+    @Query("includeCounts") includeCounts?: string,
+  ) {
     const user = getAuthenticatedUser(request);
     const activeTenant = getActiveTenant(request);
-    return this.pages.listPages({ actorUserId: user.id, tenantId: activeTenant.id, websiteId });
+    return this.pages.listPages({
+      actorUserId: user.id,
+      tenantId: activeTenant.id,
+      websiteId,
+      status,
+      query,
+      includeCounts,
+    });
   }
 
   @Get("websites/:websiteId/pages/tree")
@@ -129,6 +142,37 @@ export class PagesController {
     const user = getAuthenticatedUser(request);
     const activeTenant = getActiveTenant(request);
     return this.pages.archivePage(user.id, activeTenant.id, pageId);
+  }
+
+  @Post("pages/:pageId/clone")
+  @RequireRole(MembershipRole.EDITOR)
+  clonePage(@Req() request: AuthenticatedRequest, @Param("pageId") pageId: string) {
+    const user = getAuthenticatedUser(request);
+    const activeTenant = getActiveTenant(request);
+    return this.pages.clonePage(user.id, activeTenant.id, pageId);
+  }
+
+  @Post("pages/bulk")
+  @RequireRole(MembershipRole.EDITOR)
+  bulkPageAction(@Req() request: AuthenticatedRequest, @Body() body: unknown) {
+    const user = getAuthenticatedUser(request);
+    const activeTenant = getActiveTenant(request);
+    const input = body as Record<string, unknown>;
+
+    return this.pages.bulkPageAction({
+      actorUserId: user.id,
+      tenantId: activeTenant.id,
+      pageIds: input.pageIds,
+      action: input.action,
+    });
+  }
+
+  @Delete("pages/:pageId")
+  @RequireRole(MembershipRole.ADMIN)
+  deletePage(@Req() request: AuthenticatedRequest, @Param("pageId") pageId: string) {
+    const user = getAuthenticatedUser(request);
+    const activeTenant = getActiveTenant(request);
+    return this.pages.deletePages(user.id, activeTenant.id, [pageId]);
   }
 
   @Post("pages/:pageId/versions")

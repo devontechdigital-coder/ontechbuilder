@@ -1,22 +1,24 @@
 "use client";
 
-import { Archive, CheckCircle2, Code2, Copy, CreditCard, Edit3, ExternalLink, Eye, Filter, Gift, Globe2, History, Library, Palette, Plus, RefreshCw, Rocket, Search, SearchCheck, Trash2, UploadCloud } from "lucide-react";
+import { Archive, CheckCircle2, Code2, Copy, CreditCard, Edit3, ExternalLink, Eye, Filter, Gift, Globe2, History, Library, Palette, Plus, RefreshCw, Rocket, Search, SearchCheck, Settings, ShieldAlert, Trash2, UploadCloud } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { FormEvent } from "react";
 import { use, useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import { DashboardShell } from "../../components/layout/dashboard-shell";
-import { Button, ButtonLink, IconButton } from "../../components/ui/button";
-import { Alert, Badge, Card, EmptyState, LoadingState, SectionHeader } from "../../components/ui/display";
+import { Button, IconButton } from "../../components/ui/button";
+import { Alert, Badge, Card, EmptyState, LoadingState, SectionHeader, Skeleton } from "../../components/ui/display";
 import { Checkbox, Field, Input, Select } from "../../components/ui/form";
-import { Pagination, Table } from "../../components/ui/navigation";
+import { Pagination, Table, Tabs } from "../../components/ui/navigation";
 import { ConfirmDialog, Modal, Sheet } from "../../components/ui/overlay";
 import { apiRequest } from "../../lib/api";
+import { cn } from "../../lib/utils";
 import type { ActiveTenant, SafeUser, TenantSummary } from "../auth/types";
 import { getTemplateDefinitions, isHomeTemplateId, type TemplateDefinition } from "./customizer/state";
 import type {
   DomainSummary,
+  PageListSummary,
   PageResult,
   PageSummary,
   ThemeDefinitionSummary,
@@ -36,7 +38,9 @@ interface MeResponse {
 
 type WebsiteSection = "pages" | "themes" | "domains" | "settings";
 
-const pageSize = 8;
+const domainPageSize = 8;
+const pageSizePresets = ["10", "25", "50", "100"];
+const defaultPagesPerPage = 10;
 
 function getCachedDashboardShell(): { me: MeResponse; tenants: TenantSummary[] } | null {
   if (typeof window === "undefined") {
@@ -67,12 +71,20 @@ export function WebsiteWorkspace({
   const [website, setWebsite] = useState<WebsiteSummary | null>(null);
   const [domains, setDomains] = useState<DomainSummary[]>([]);
   const [pages, setPages] = useState<PageSummary[]>([]);
+  const [pageCounts, setPageCounts] = useState<PageListSummary["counts"]>({ all: 0, DRAFT: 0, PUBLISHED: 0, ARCHIVED: 0 });
   const [themes, setThemes] = useState<ThemeInstallationSummary[]>([]);
   const [themeCatalog, setThemeCatalog] = useState<ThemeDefinitionSummary[]>([]);
   const [pageIndex, setPageIndex] = useState(0);
   const [pageQuery, setPageQuery] = useState("");
+  const [pageSearchInput, setPageSearchInput] = useState("");
   const [pageStatusFilter, setPageStatusFilter] = useState("all");
-  const [pageParentFilter, setPageParentFilter] = useState("all");
+  const [selectedPageIds, setSelectedPageIds] = useState<Set<string>>(new Set());
+  const [isLoadingPages, setIsLoadingPages] = useState(false);
+  const [isBulkUpdatingPages, setIsBulkUpdatingPages] = useState(false);
+  const [pageSizeChoice, setPageSizeChoice] = useState<string>(String(defaultPagesPerPage));
+  const [pageSizeInputChoice, setPageSizeInputChoice] = useState<string>(String(defaultPagesPerPage));
+  const [customPageSize, setCustomPageSize] = useState(defaultPagesPerPage);
+  const [customPageSizeInput, setCustomPageSizeInput] = useState(defaultPagesPerPage);
   const [createPageOpen, setCreatePageOpen] = useState(false);
   const [createThemeOpen, setCreateThemeOpen] = useState(false);
   const [themeName, setThemeName] = useState("Portal Modern");
@@ -91,14 +103,12 @@ export function WebsiteWorkspace({
   const [pageTitle, setPageTitle] = useState("");
   const [pageSlug, setPageSlug] = useState("");
   const [pageSlugTouched, setPageSlugTouched] = useState(false);
-  const [parentId, setParentId] = useState("");
   const [isHomePage, setIsHomePage] = useState(false);
   const [templateOptions, setTemplateOptions] = useState<TemplateDefinition[]>([]);
   const [pageTemplateId, setPageTemplateId] = useState("");
   const [editingPage, setEditingPage] = useState<PageSummary | null>(null);
   const [editingPageTitle, setEditingPageTitle] = useState("");
   const [editingPageSlug, setEditingPageSlug] = useState("");
-  const [editingPageParentId, setEditingPageParentId] = useState("");
   const [editingPageIsHomePage, setEditingPageIsHomePage] = useState(false);
   const [editingPageTemplateId, setEditingPageTemplateId] = useState("");
   const [editingPageStatus, setEditingPageStatus] = useState<PageSummary["status"]>("DRAFT");
@@ -110,28 +120,59 @@ export function WebsiteWorkspace({
   const [error, setError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<null | { title: string; description: string; action: () => void }>(null);
 
-  const filteredPages = useMemo(() => {
-    const normalized = pageQuery.trim().toLowerCase();
-    return pages.filter((page) => {
-      const matchesQuery = !normalized || `${page.title} ${page.slug} ${page.status}`.toLowerCase().includes(normalized);
-      const matchesStatus = pageStatusFilter === "all" || page.status === pageStatusFilter;
-      const matchesParent =
-        pageParentFilter === "all" ||
-        (pageParentFilter === "root" ? !page.parentId : page.parentId === pageParentFilter);
-      return matchesQuery && matchesStatus && matchesParent;
-    });
-  }, [pageParentFilter, pageQuery, pageStatusFilter, pages]);
+  const pagesPerPage = pageSizeChoice === "custom" ? Math.max(1, customPageSize || 1) : Number(pageSizeChoice);
+  const visiblePages = pages.slice(pageIndex * pagesPerPage, pageIndex * pagesPerPage + pagesPerPage);
+  const pageCount = Math.max(1, Math.ceil(pages.length / pagesPerPage));
+  const selectedPages = useMemo(() => pages.filter((page) => selectedPageIds.has(page.id)), [pages, selectedPageIds]);
+  const visibleSelectablePageIds = visiblePages.map((page) => page.id);
+  const allVisiblePagesSelected = Boolean(visibleSelectablePageIds.length) && visibleSelectablePageIds.every((pageId) => selectedPageIds.has(pageId));
+  const pageFilterTabs = [
+    { value: "all", label: `All (${pageCounts.all})`, count: pageCounts.all },
+    { value: "PUBLISHED", label: `Published (${pageCounts.PUBLISHED})`, count: pageCounts.PUBLISHED },
+    { value: "DRAFT", label: `Draft (${pageCounts.DRAFT})`, count: pageCounts.DRAFT },
+    { value: "ARCHIVED", label: `Archived (${pageCounts.ARCHIVED})`, count: pageCounts.ARCHIVED },
+  ].filter((tab) => tab.value === "all" || tab.count > 0);
+  const pendingPagesPerPage = pageSizeInputChoice === "custom" ? Math.max(1, customPageSizeInput || 1) : Number(pageSizeInputChoice);
+  const hasPendingPageControls =
+    pageSearchInput.trim() !== pageQuery ||
+    pageSizeInputChoice !== pageSizeChoice ||
+    pendingPagesPerPage !== pagesPerPage;
 
-  const visiblePages = filteredPages.slice(pageIndex * pageSize, pageIndex * pageSize + pageSize);
-  const pageCount = Math.max(1, Math.ceil(filteredPages.length / pageSize));
+  async function loadPages(status = pageStatusFilter, query = pageQuery) {
+    const searchParams = new URLSearchParams({ includeCounts: "true" });
+    const normalizedQuery = query.trim();
+    if (status !== "all") {
+      searchParams.set("status", status);
+    }
+    if (normalizedQuery) {
+      searchParams.set("q", normalizedQuery);
+    }
+
+    setIsLoadingPages(true);
+    try {
+      const pagesResponse = await apiRequest<PageListSummary>(`/websites/${id}/pages?${searchParams.toString()}`);
+      setPages(pagesResponse.data);
+      setPageCounts(pagesResponse.counts);
+    } finally {
+      setIsLoadingPages(false);
+    }
+  }
 
   async function loadWebsite(activeTenant: ActiveTenant, domainCursor?: string) {
+    const pageSearchParams = new URLSearchParams({ includeCounts: "true" });
+    if (pageStatusFilter !== "all") {
+      pageSearchParams.set("status", pageStatusFilter);
+    }
+    if (pageQuery.trim()) {
+      pageSearchParams.set("q", pageQuery.trim());
+    }
+
     const [websiteResponse, domainResponse, pagesResponse, themesResponse, catalogResponse] = await Promise.all([
       apiRequest<WebsiteSummary>(`/tenants/${activeTenant.id}/websites/${id}`),
       apiRequest<PageResult<DomainSummary>>(
-        `/tenants/${activeTenant.id}/websites/${id}/domains?limit=${pageSize}${domainCursor ? `&cursor=${encodeURIComponent(domainCursor)}` : ""}`,
+        `/tenants/${activeTenant.id}/websites/${id}/domains?limit=${domainPageSize}${domainCursor ? `&cursor=${encodeURIComponent(domainCursor)}` : ""}`,
       ),
-      apiRequest<PageSummary[]>(`/websites/${id}/pages`),
+      apiRequest<PageListSummary>(`/websites/${id}/pages?${pageSearchParams.toString()}`),
       apiRequest<ThemeInstallationSummary[]>(`/tenants/${activeTenant.id}/websites/${id}/themes`),
       apiRequest<ThemeDefinitionSummary[]>(`/tenants/${activeTenant.id}/websites/${id}/themes/catalog`),
     ]);
@@ -140,7 +181,8 @@ export function WebsiteWorkspace({
     setName(websiteResponse.name);
     setSlug(websiteResponse.slug);
     setDomains((current) => (domainCursor ? [...current, ...domainResponse.data] : domainResponse.data));
-    setPages(pagesResponse);
+    setPages(pagesResponse.data);
+    setPageCounts(pagesResponse.counts);
     setThemes(themesResponse);
     setThemeCatalog(catalogResponse);
 
@@ -188,7 +230,22 @@ export function WebsiteWorkspace({
 
   useEffect(() => {
     setPageIndex(0);
-  }, [pageParentFilter, pageQuery, pageStatusFilter]);
+    setSelectedPageIds(new Set());
+  }, [pageQuery, pageStatusFilter, pageSizeChoice, customPageSize]);
+
+  useEffect(() => {
+    if (pageStatusFilter !== "all" && pageCounts[pageStatusFilter as keyof Omit<PageListSummary["counts"], "all">] === 0) {
+      setPageStatusFilter("all");
+    }
+  }, [pageCounts, pageStatusFilter]);
+
+  useEffect(() => {
+    if (!me?.activeTenant || section !== "pages") {
+      return;
+    }
+
+    void loadPages();
+  }, [me?.activeTenant, pageQuery, pageStatusFilter, section]);
 
   useEffect(() => {
     if (!pageSlugTouched) {
@@ -348,12 +405,11 @@ export function WebsiteWorkspace({
     try {
       await apiRequest<PageSummary>(`/websites/${id}/pages`, {
         method: "POST",
-        body: JSON.stringify({ title: pageTitle, slug: pageSlug, parentId: parentId || null, isHomePage, templateId: pageTemplateId || null }),
+        body: JSON.stringify({ title: pageTitle, slug: pageSlug, isHomePage, templateId: pageTemplateId || null }),
       });
       setPageTitle("");
       setPageSlug("");
       setPageSlugTouched(false);
-      setParentId("");
       setIsHomePage(false);
       setPageTemplateId(defaultTemplateId(false));
       setCreatePageOpen(false);
@@ -368,7 +424,6 @@ export function WebsiteWorkspace({
     setEditingPage(page);
     setEditingPageTitle(page.title);
     setEditingPageSlug(page.slug);
-    setEditingPageParentId(page.parentId ?? "");
     setEditingPageIsHomePage(pageIsHomePage);
     setEditingPageTemplateId(page.templateId ?? defaultTemplateId(pageIsHomePage));
     setEditingPageStatus(page.status);
@@ -388,7 +443,6 @@ export function WebsiteWorkspace({
         body: JSON.stringify({
           title: editingPageTitle,
           slug: editingPageSlug,
-          parentId: editingPageParentId || null,
           isHomePage: editingPageIsHomePage,
           templateId: editingPageTemplateId || null,
           status: editingPageStatus,
@@ -402,20 +456,85 @@ export function WebsiteWorkspace({
     }
   }
 
-  async function publishPageDraft(page: PageSummary) {
-    if (!page.draftVersionId) {
-      toast.error("Create or save a draft before publishing.");
-      return;
-    }
-
-    await apiRequest(`/pages/${page.id}/versions/${page.draftVersionId}/publish`, { method: "POST" });
-    toast.success(`${page.title} is live`);
-    await refresh();
-  }
-
   async function archivePage(page: PageSummary) {
     await apiRequest(`/pages/${page.id}/archive`, { method: "POST" });
     await refresh();
+  }
+
+  async function clonePage(page: PageSummary) {
+    const toastId = toast.loading(`Cloning ${page.title}...`, { position: "top-right" });
+    try {
+      await apiRequest<PageSummary>(`/pages/${page.id}/clone`, { method: "POST" });
+      toast.success(`${page.title} cloned successfully`, { id: toastId, position: "top-right" });
+      await refresh();
+    } catch (requestError) {
+      toast.error(requestError instanceof Error ? requestError.message : "Page clone failed", { id: toastId, position: "top-right" });
+    }
+  }
+
+  function applyPageControls() {
+    setPageQuery(pageSearchInput.trim());
+    setPageSizeChoice(pageSizeInputChoice);
+    setCustomPageSize(pendingPagesPerPage);
+  }
+
+  function clearPageControls() {
+    setPageSearchInput("");
+    setPageQuery("");
+    setPageStatusFilter("all");
+    setPageSizeInputChoice(String(defaultPagesPerPage));
+    setPageSizeChoice(String(defaultPagesPerPage));
+    setCustomPageSizeInput(defaultPagesPerPage);
+    setCustomPageSize(defaultPagesPerPage);
+    setSelectedPageIds(new Set());
+  }
+
+  function togglePageSelection(pageId: string, checked: boolean) {
+    setSelectedPageIds((current) => {
+      const next = new Set(current);
+      if (checked) {
+        next.add(pageId);
+      } else {
+        next.delete(pageId);
+      }
+      return next;
+    });
+  }
+
+  function toggleVisiblePageSelection(checked: boolean) {
+    setSelectedPageIds((current) => {
+      const next = new Set(current);
+      for (const pageId of visibleSelectablePageIds) {
+        if (checked) {
+          next.add(pageId);
+        } else {
+          next.delete(pageId);
+        }
+      }
+      return next;
+    });
+  }
+
+  async function bulkPageAction(action: "PUBLISH" | "DRAFT" | "ARCHIVE" | "DELETE") {
+    if (!selectedPageIds.size) {
+      return;
+    }
+
+    setIsBulkUpdatingPages(true);
+    try {
+      const response = await apiRequest<{ count: number }>("/pages/bulk", {
+        method: "POST",
+        body: JSON.stringify({ pageIds: Array.from(selectedPageIds), action }),
+      });
+      setSelectedPageIds(new Set());
+      const actionLabel = action === "PUBLISH" ? "published" : action === "DRAFT" ? "moved to draft" : action === "ARCHIVE" ? "archived" : "deleted";
+      toast.success(`${response.count} page${response.count === 1 ? "" : "s"} ${actionLabel}`);
+      await refresh();
+    } catch (requestError) {
+      toast.error(requestError instanceof Error ? requestError.message : "Bulk page action failed");
+    } finally {
+      setIsBulkUpdatingPages(false);
+    }
   }
 
   async function addDomain(event: FormEvent<HTMLFormElement>) {
@@ -609,75 +728,162 @@ export function WebsiteWorkspace({
                 </div>
               }
             />
-            <div className="grid gap-3 rounded-lg border bg-surface-secondary/40 p-3 lg:grid-cols-[minmax(260px,1fr)_190px_220px_auto]">
+            <Tabs tabs={pageFilterTabs} value={pageStatusFilter} onChange={setPageStatusFilter} />
+            <form
+              className="grid gap-3 rounded-lg border bg-surface-secondary/40 p-3 lg:grid-cols-[minmax(240px,1fr)_minmax(150px,auto)_auto_auto]"
+              onSubmit={(event) => {
+                event.preventDefault();
+                applyPageControls();
+              }}
+            >
               <div className="relative">
                 <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   className="pl-9"
-                  value={pageQuery}
-                  onChange={(event) => setPageQuery(event.target.value)}
+                  value={pageSearchInput}
+                  onChange={(event) => setPageSearchInput(event.target.value)}
                   placeholder="Search title, slug, status"
                   type="search"
                 />
               </div>
-              <Select value={pageStatusFilter} onChange={(event) => setPageStatusFilter(event.target.value)}>
-                <option value="all">All statuses</option>
-                <option value="DRAFT">Draft</option>
-                <option value="PUBLISHED">Published</option>
-                <option value="ARCHIVED">Archived</option>
-              </Select>
-              <Select value={pageParentFilter} onChange={(event) => setPageParentFilter(event.target.value)}>
-                <option value="all">All parents</option>
-                <option value="root">Root pages</option>
-                {pages.map((page) => (
-                  <option key={page.id} value={page.id}>{page.title}</option>
-                ))}
-              </Select>
+              <div className="flex items-center gap-2">
+                <Select
+                  aria-label="Pages per page"
+                  value={pageSizeInputChoice}
+                  onChange={(event) => {
+                    const nextValue = event.target.value;
+                    setPageSizeInputChoice(nextValue);
+                    if (nextValue === "custom") {
+                      setCustomPageSizeInput(pagesPerPage);
+                    }
+                  }}
+                >
+                  {pageSizePresets.map((preset) => (
+                    <option key={preset} value={preset}>{preset} / page</option>
+                  ))}
+                  <option value="custom">Custom</option>
+                </Select>
+                {pageSizeInputChoice === "custom" ? (
+                  <Input
+                    aria-label="Custom pages per page"
+                    className="w-20"
+                    type="number"
+                    min={1}
+                    max={500}
+                    value={customPageSizeInput}
+                    onChange={(event) => setCustomPageSizeInput(Math.max(1, Number(event.target.value) || 1))}
+                  />
+                ) : null}
+              </div>
+              <Button type="submit" disabled={!hasPendingPageControls || isLoadingPages}>
+                <SearchCheck className="size-4" />
+                Apply
+              </Button>
               <Button
                 type="button"
                 variant="secondary"
-                onClick={() => {
-                  setPageQuery("");
-                  setPageStatusFilter("all");
-                  setPageParentFilter("all");
-                }}
+                onClick={clearPageControls}
               >
                 <Filter className="size-4" />
                 Clear
               </Button>
-            </div>
-            {visiblePages.length ? (
+            </form>
+            {isLoadingPages ? (
+              <PagesTableSkeleton />
+            ) : visiblePages.length ? (
               <>
-                <Table headers={["Page", "Slug", "Parent", "Draft", "Published", "Status", "Updated", "Actions"]}>
+                {selectedPages.length ? (
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-surface-secondary/45 p-3">
+                    <p className="text-[12.5px] font-semibold text-foreground">
+                      {selectedPages.length} selected
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <Button type="button" size="sm" variant="secondary" disabled={isBulkUpdatingPages} onClick={() => void bulkPageAction("PUBLISH")}>
+                        <Rocket className="size-4" />
+                        Publish
+                      </Button>
+                      <Button type="button" size="sm" variant="secondary" disabled={isBulkUpdatingPages} onClick={() => void bulkPageAction("DRAFT")}>
+                        <Edit3 className="size-4" />
+                        Draft
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        disabled={isBulkUpdatingPages}
+                        onClick={() => setConfirm({ title: "Archive pages", description: `Archive ${selectedPages.length} selected page${selectedPages.length === 1 ? "" : "s"}?`, action: () => void bulkPageAction("ARCHIVE") })}
+                      >
+                        <Archive className="size-4" />
+                        Archive
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="danger"
+                        disabled={isBulkUpdatingPages}
+                        onClick={() => setConfirm({ title: "Permanently delete pages", description: `Permanently delete ${selectedPages.length} selected page${selectedPages.length === 1 ? "" : "s"}? This cannot be undone.`, action: () => void bulkPageAction("DELETE") })}
+                      >
+                        <Trash2 className="size-4" />
+                        Delete
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
+                <Table
+                  headers={[
+                    <input
+                      key="select"
+                      aria-label="Select visible pages"
+                      className="size-4 rounded border-input text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      type="checkbox"
+                      checked={allVisiblePagesSelected}
+                      onChange={(event) => toggleVisiblePageSelection(event.target.checked)}
+                    />,
+                    "Page",
+                    "Slug",
+                    "Status",
+                    "Updated",
+                    "Actions",
+                  ]}
+                >
                   {visiblePages.map((page) => (
                     <tr key={page.id} className="hover:bg-surface-secondary/70">
+                      <td>
+                        <input
+                          aria-label={`Select ${page.title}`}
+                          className="size-4 rounded border-input text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          type="checkbox"
+                          checked={selectedPageIds.has(page.id)}
+                          onChange={(event) => togglePageSelection(page.id, event.target.checked)}
+                        />
+                      </td>
                       <td className="font-semibold text-foreground">{page.title}</td>
                       <td className="text-muted-foreground">/{page.slug}</td>
-                      <td className="text-muted-foreground">{page.parentId ? pages.find((parent) => parent.id === page.parentId)?.title ?? "Nested" : "Root"}</td>
-                      <td>{page.draftVersionId ? <Badge tone="warning">ready</Badge> : <Badge>none</Badge>}</td>
-                      <td>{page.publishedVersionId ? <Badge tone="success">live</Badge> : <Badge>none</Badge>}</td>
                       <td><StatusBadge status={page.status} /></td>
                       <td className="text-muted-foreground">{new Date(page.updatedAt).toLocaleDateString()}</td>
                       <td>
-                        <div className="flex justify-end gap-1">
-                          <ButtonLink href={`/builder/pages/${page.id}`} size="icon" variant="secondary" ariaLabel={`Open ${page.title} in builder`}>
-                            <Code2 className="size-4" />
-                          </ButtonLink>
-                          <IconButton label={`Edit ${page.title}`} onClick={() => openEditPage(page)}>
+                        <div className="flex flex-wrap justify-end gap-1.5">
+                          <Button asChild type="button" size="sm" variant="secondary">
+                            <Link href={`/builder/pages/${page.id}`}>
+                              <Code2 className="size-4" />
+                              Builder
+                            </Link>
+                          </Button>
+                          <Button type="button" size="sm" variant="secondary" onClick={() => openEditPage(page)}>
                             <Edit3 className="size-4" />
-                          </IconButton>
-                          <IconButton
-                            label={`Publish ${page.title}`}
-                            disabled={!page.draftVersionId}
-                            onClick={() => void publishPageDraft(page)}
-                          >
-                            <Rocket className="size-4" />
-                          </IconButton>
-                          <IconButton label={`SEO settings for ${page.title}`} onClick={() => setSeoPage(page)}>
+                            Edit
+                          </Button>
+                          <Button type="button" size="sm" variant="secondary" onClick={() => setSeoPage(page)}>
                             <SearchCheck className="size-4" />
-                          </IconButton>
+                            SEO
+                          </Button>
+                          <Button type="button" size="sm" variant="secondary" onClick={() => void clonePage(page)}>
+                            <Copy className="size-4" />
+                            Clone
+                          </Button>
                           <IconButton
                             label={`Archive ${page.title}`}
+                            disabled={page.status === "ARCHIVED"}
                             className="text-destructive hover:bg-destructive/10 hover:text-destructive"
                             onClick={() => setConfirm({ title: "Archive page", description: `Archive ${page.title}?`, action: () => void archivePage(page) })}
                           >
@@ -719,12 +925,6 @@ export function WebsiteWorkspace({
                   required
                 />
               </Field>
-              <Field label="Parent">
-                <Select value={parentId} onChange={(event) => setParentId(event.target.value)}>
-                  <option value="">No parent</option>
-                  {pages.map((page) => <option key={page.id} value={page.id}>{page.title}</option>)}
-                </Select>
-              </Field>
               {templateOptions.length ? (
                 <Field label="Template" hint="Controls which theme layout this page opens with in the builder.">
                   <Select value={pageTemplateId} onChange={(event) => setPageTemplateId(event.target.value)}>
@@ -764,14 +964,6 @@ export function WebsiteWorkspace({
                   onChange={(event) => setEditingPageSlug(slugify(event.target.value))}
                   required
                 />
-              </Field>
-              <Field label="Parent">
-                <Select value={editingPageParentId} onChange={(event) => setEditingPageParentId(event.target.value)}>
-                  <option value="">No parent</option>
-                  {pages
-                    .filter((page) => page.id !== editingPage?.id)
-                    .map((page) => <option key={page.id} value={page.id}>{page.title}</option>)}
-                </Select>
               </Field>
               <Field label="Status" hint="Publish a draft version to make page content live.">
                 <Select
@@ -827,17 +1019,31 @@ export function WebsiteWorkspace({
         <section className="grid items-start gap-4 xl:grid-cols-[minmax(320px,0.72fr)_minmax(0,1.28fr)]">
           {activeSelectedDomain ? (
             <Card>
-              <SectionHeader
-                title="Custom domain"
-                description="One custom domain can be attached to this website."
-                actions={<DomainBadge status={activeSelectedDomain.verificationStatus} />}
-              />
-              <div className="grid gap-3 rounded-lg border bg-surface-secondary/45 p-3">
-                <div className="min-w-0">
-                  <p className="break-all text-base font-semibold text-foreground">{activeSelectedDomain.hostname}</p>
-                  <p className="mt-1 text-[12px] leading-5 text-muted-foreground">
-                    {activeSelectedDomain.verificationStatus === "VERIFIED" ? "DNS is connected." : "DNS is not connected yet."}
-                  </p>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+                    <Globe2 className="size-[18px]" />
+                  </div>
+                  <div>
+                    <h2 className="text-[14.5px] font-semibold leading-5 text-foreground">Custom domain</h2>
+                    <p className="mt-0.5 text-[12.5px] leading-5 text-muted-foreground">One custom domain can be attached to this website.</p>
+                  </div>
+                </div>
+                <DomainBadge status={activeSelectedDomain.verificationStatus} />
+              </div>
+              <div className="grid gap-3 rounded-lg border bg-surface-secondary/45 p-3.5">
+                <div className="flex items-start gap-2.5">
+                  {activeSelectedDomain.verificationStatus === "VERIFIED" ? (
+                    <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-success" />
+                  ) : (
+                    <RefreshCw className="mt-0.5 size-4 shrink-0 text-warning" />
+                  )}
+                  <div className="min-w-0">
+                    <p className="break-all text-base font-semibold text-foreground">{activeSelectedDomain.hostname}</p>
+                    <p className="mt-1 text-[12px] leading-5 text-muted-foreground">
+                      {activeSelectedDomain.verificationStatus === "VERIFIED" ? "DNS is connected." : "DNS is not connected yet."}
+                    </p>
+                  </div>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <Button
@@ -881,10 +1087,18 @@ export function WebsiteWorkspace({
             </Card>
           ) : (
             <Card>
-              <SectionHeader title="Add domain" description="Attach one hostname to this website." />
+              <div className="flex items-start gap-3">
+                <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+                  <Globe2 className="size-[18px]" />
+                </div>
+                <div>
+                  <h2 className="text-[14.5px] font-semibold leading-5 text-foreground">Add domain</h2>
+                  <p className="mt-0.5 text-[12.5px] leading-5 text-muted-foreground">Attach one hostname to this website.</p>
+                </div>
+              </div>
               <form className="grid gap-4" onSubmit={addDomain}>
                 <Field label="Hostname"><Input value={hostname} onChange={(event) => setHostname(event.target.value)} placeholder="example.com" required /></Field>
-                <Button type="submit"><Plus className="size-4" />Add domain</Button>
+                <Button type="submit" className="w-fit"><Plus className="size-4" />Add domain</Button>
               </form>
             </Card>
           )}
@@ -1245,40 +1459,66 @@ export function WebsiteWorkspace({
       ) : null}
 
       {section === "settings" ? (
-        <section className="grid items-start gap-4 xl:grid-cols-2">
-          <Card>
-            <SectionHeader title="Website settings" description="Update the website name and internal slug." actions={<StatusBadge status={website.status} />} />
-            <form className="grid gap-4" onSubmit={saveWebsite}>
-              <Field label="Name"><Input value={name} onChange={(event) => setName(event.target.value)} required /></Field>
-              <Field label="Slug"><Input value={slug} onChange={(event) => setSlug(slugify(event.target.value))} required /></Field>
-              <Button type="submit" className="w-fit">Save settings</Button>
-            </form>
-
-            <div className="h-px bg-border" />
-
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/20 bg-destructive/[0.04] p-3.5">
-              <div>
-                <p className="text-[12.5px] font-semibold text-foreground">Archive website</p>
-                <p className="mt-0.5 max-w-sm text-[11.5px] leading-5 text-muted-foreground">
-                  Hides this website from visitors and removes it from active listings. It can be restored later.
-                </p>
+        <section className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(280px,1fr)]">
+          <div className="grid gap-4">
+            <Card>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+                    <Settings className="size-[18px]" />
+                  </div>
+                  <div>
+                    <h2 className="text-[14.5px] font-semibold leading-5 text-foreground">Website settings</h2>
+                    <p className="mt-0.5 text-[12.5px] leading-5 text-muted-foreground">Update the website name and internal slug.</p>
+                  </div>
+                </div>
+                <StatusBadge status={website.status} />
               </div>
-              <Button
-                type="button"
-                variant="danger"
-                onClick={() => setConfirm({ title: "Archive website", description: "Archive this website record?", action: archiveWebsite })}
-              >
-                Archive website
-              </Button>
-            </div>
-          </Card>
+              <form className="grid gap-4 sm:grid-cols-2" onSubmit={saveWebsite}>
+                <Field label="Name"><Input value={name} onChange={(event) => setName(event.target.value)} required /></Field>
+                <Field label="Slug" hint="Used for preview and internal URLs.">
+                  <Input value={slug} onChange={(event) => setSlug(slugify(event.target.value))} required />
+                </Field>
+                <div className="flex justify-end sm:col-span-2">
+                  <Button type="submit"><CheckCircle2 className="size-4" />Save settings</Button>
+                </div>
+              </form>
+            </Card>
+
+            <Card className="border-destructive/25 bg-destructive/[0.03]">
+              <div className="flex items-start gap-3">
+                <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-destructive/10 text-destructive">
+                  <ShieldAlert className="size-[18px]" />
+                </div>
+                <div>
+                  <h2 className="text-[14.5px] font-semibold leading-5 text-foreground">Danger zone</h2>
+                  <p className="mt-0.5 text-[12.5px] leading-5 text-muted-foreground">Irreversible actions for this website.</p>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/20 bg-surface p-3.5">
+                <div>
+                  <p className="text-[12.5px] font-semibold text-foreground">Archive website</p>
+                  <p className="mt-0.5 max-w-sm text-[11.5px] leading-5 text-muted-foreground">
+                    Hides this website from visitors and removes it from active listings. It can be restored later.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="danger"
+                  onClick={() => setConfirm({ title: "Archive website", description: "Archive this website record?", action: archiveWebsite })}
+                >
+                  Archive website
+                </Button>
+              </div>
+            </Card>
+          </div>
 
           <Card title="Record details" eyebrow="Metadata">
-            <Table headers={["Field", "Value"]}>
-              <tr><td className="font-semibold text-foreground">Website ID</td><td className="text-muted-foreground">{website.id}</td></tr>
-              <tr><td className="font-semibold text-foreground">Created</td><td className="text-muted-foreground">{new Date(website.createdAt).toLocaleString()}</td></tr>
-              <tr><td className="font-semibold text-foreground">Updated</td><td className="text-muted-foreground">{new Date(website.updatedAt).toLocaleString()}</td></tr>
-            </Table>
+            <div className="grid gap-2">
+              <DetailRow label="Website ID" value={website.id} mono copyable />
+              <DetailRow label="Created" value={new Date(website.createdAt).toLocaleString()} />
+              <DetailRow label="Updated" value={new Date(website.updatedAt).toLocaleString()} />
+            </div>
           </Card>
         </section>
       ) : null}
@@ -1303,6 +1543,61 @@ export function WebsiteWorkspace({
 function StatusBadge({ status }: { status: WebsiteSummary["status"] | PageSummary["status"] }) {
   const tone = status === "PUBLISHED" ? "success" : status === "ARCHIVED" ? "danger" : "warning";
   return <Badge tone={tone}>{status.toLowerCase()}</Badge>;
+}
+
+function PagesTableSkeleton() {
+  return (
+    <div className="overflow-x-auto rounded-lg border bg-surface" role="status" aria-label="Loading pages">
+      <div className="min-w-[760px]">
+        <div className="grid grid-cols-[36px_minmax(150px,1.2fr)_minmax(120px,1fr)_90px_96px_minmax(220px,auto)] gap-3 border-b bg-surface-secondary px-3 py-3">
+          {Array.from({ length: 6 }).map((_, index) => (
+            <Skeleton key={`pages-head-skeleton-${index}`} className="h-4" />
+          ))}
+        </div>
+        {Array.from({ length: 7 }).map((_, row) => (
+          <div
+            key={`pages-row-skeleton-${row}`}
+            className="grid grid-cols-[36px_minmax(150px,1.2fr)_minmax(120px,1fr)_90px_96px_minmax(220px,auto)] gap-3 border-b px-3 py-3 last:border-b-0"
+          >
+            <Skeleton className="size-4 rounded" />
+            <Skeleton className="h-5 w-44 max-w-full" />
+            <Skeleton className="h-5 w-36 max-w-full" />
+            <Skeleton className="h-5 w-20 rounded-full" />
+            <Skeleton className="h-5 w-20" />
+            <div className="flex justify-end gap-1.5">
+              {Array.from({ length: 5 }).map((__, actionIndex) => (
+                <Skeleton key={`pages-action-skeleton-${row}-${actionIndex}`} className="h-7 w-16 rounded-md" />
+              ))}
+            </div>
+          </div>
+        ))}
+        <span className="sr-only">Loading pages</span>
+      </div>
+    </div>
+  );
+}
+
+function DetailRow({ label, value, mono, copyable }: { label: string; value: string; mono?: boolean; copyable?: boolean }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-lg border bg-surface-secondary/35 px-3 py-2.5">
+      <div className="min-w-0">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.04em] text-muted-foreground">{label}</p>
+        <p className={cn("mt-0.5 truncate text-[12.5px] text-foreground", mono && "font-mono")} title={value}>
+          {value}
+        </p>
+      </div>
+      {copyable ? (
+        <button
+          type="button"
+          aria-label={`Copy ${label}`}
+          className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-surface hover:text-foreground"
+          onClick={() => void copyToClipboard(value)}
+        >
+          <Copy className="size-3.5" />
+        </button>
+      ) : null}
+    </div>
+  );
 }
 
 function WebsiteViewActions({
@@ -1448,15 +1743,6 @@ function DnsRecordStep({
   helper: string;
   rows: Array<[string, string]>;
 }) {
-  async function copyValue(value: string) {
-    if (typeof navigator === "undefined" || !navigator.clipboard) {
-      return;
-    }
-
-    await navigator.clipboard.writeText(value);
-    toast.success("Copied");
-  }
-
   return (
     <div className="flex gap-3">
       <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-bold text-foreground">
@@ -1476,7 +1762,7 @@ function DnsRecordStep({
                 type="button"
                 aria-label={`Copy ${label}`}
                 className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-surface-secondary hover:text-foreground"
-                onClick={() => void copyValue(value)}
+                onClick={() => void copyToClipboard(value)}
               >
                 <Copy className="size-3.5" />
               </button>
@@ -1580,6 +1866,15 @@ function ThemeHistoryModal({
       </div>
     </Modal>
   );
+}
+
+async function copyToClipboard(value: string) {
+  if (typeof navigator === "undefined" || !navigator.clipboard) {
+    return;
+  }
+
+  await navigator.clipboard.writeText(value);
+  toast.success("Copied");
 }
 
 function slugify(value: string) {
