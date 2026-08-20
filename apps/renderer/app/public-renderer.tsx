@@ -1,24 +1,52 @@
+import { cache } from "react";
 import { headers } from "next/headers";
+import type { Metadata } from "next";
+import { resolvePageTemplateId } from "../lib/theme-engine/resolve-template";
+import type { RenderedThemePage, RenderThemePageInput } from "../lib/theme-engine/render";
 
 interface PublicSiteResponse {
   hostname: string;
   website: {
+    id: string;
     name: string;
     slug: string;
     status: "DRAFT" | "PUBLISHED" | "ARCHIVED";
   };
   page: {
+    id: string;
     title: string;
     slug: string;
+    seo: unknown;
+    templateId: string | null;
     content: unknown;
+  } | null;
+  /** The published theme's real source + the merchant's customizer settings — present once a theme has actually been published for this website. */
+  themeEngine: {
+    files: Record<string, string>;
+    settings: Record<string, unknown>;
+    manifest: unknown;
   } | null;
 }
 
 export async function renderPublicPage(path: string) {
-  const requestHeaders = await headers();
-  const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host") ?? "";
-  const site = await resolveSite(host, path);
+  const site = await fetchPublicSite(path);
+  return renderSite(site, { eyebrow: site?.hostname });
+}
 
+export async function publicPageMetadata(path: string): Promise<Metadata> {
+  return siteMetadata(await fetchPublicSite(path));
+}
+
+export async function renderPreviewPage(websiteId: string, path: string) {
+  const site = await fetchPreviewSite(websiteId, path);
+  return renderSite(site, { eyebrow: "Portal preview" });
+}
+
+export async function previewPageMetadata(websiteId: string, path: string): Promise<Metadata> {
+  return siteMetadata(await fetchPreviewSite(websiteId, path));
+}
+
+async function renderSite(site: PublicSiteResponse | null, options: { eyebrow?: string | undefined }) {
   if (!site) {
     return <StatusPage title="Site not connected" description="This domain is verified, but no published website is available for this host yet." />;
   }
@@ -27,10 +55,15 @@ export async function renderPublicPage(path: string) {
     return <StatusPage title={site.website.name} description="This website is connected, but it is not published yet." />;
   }
 
+  if (site.page && site.themeEngine) {
+    const themedMarkup = await renderThemedPage(site.page, site.themeEngine);
+    if (themedMarkup) return themedMarkup;
+  }
+
   return (
     <main className="public-site">
       <section className="hero">
-        <p className="eyebrow">{site.hostname}</p>
+        <p className="eyebrow">{options.eyebrow ?? site.hostname}</p>
         <h1>{site.page?.title ?? site.website.name}</h1>
         <p>{extractSummary(site.page?.content) ?? "This website is live."}</p>
       </section>
@@ -38,23 +71,75 @@ export async function renderPublicPage(path: string) {
   );
 }
 
-export async function renderPreviewPage(websiteId: string, path: string) {
-  const site = await resolvePreviewSite(websiteId, path);
-
-  if (!site) {
-    return <StatusPage title="Preview not found" description="This portal preview URL does not match an active website." />;
+/**
+ * Real theme + section rendering. This calls the internal render-theme
+ * Route Handler rather than importing lib/theme-engine/render.tsx
+ * directly — that module uses react-dom/server and a class-component
+ * error boundary, both of which Next's App Router rejects in a page's own
+ * Server Component graph. Falls back to the plain title/summary stub on
+ * any failure — a broken theme should never take the whole page down.
+ */
+async function renderThemedPage(page: NonNullable<PublicSiteResponse["page"]>, themeEngine: NonNullable<PublicSiteResponse["themeEngine"]>) {
+  try {
+    const templateId = resolvePageTemplateId({ slug: page.slug, templateId: page.templateId });
+    const input: RenderThemePageInput = {
+      files: themeEngine.files,
+      storedManifest: themeEngine.manifest,
+      customizerSettings: themeEngine.settings,
+      templateId,
+      pageKey: page.id,
+    };
+    const rendererBaseUrl = process.env.RENDERER_INTERNAL_URL ?? "http://localhost:3001";
+    const response = await fetch(`${rendererBaseUrl}/api/render-theme`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      console.error("[renderer] theme render failed:", await response.text());
+      return null;
+    }
+    const rendered = (await response.json()) as RenderedThemePage;
+    return (
+      <>
+        <style dangerouslySetInnerHTML={{ __html: rendered.css }} />
+        {/* Theme output is our own server-rendered React tree (renderToStaticMarkup), not raw user input — React already escaped every dynamic value during that render pass. */}
+        <div dangerouslySetInnerHTML={{ __html: rendered.html }} />
+      </>
+    );
+  } catch (error) {
+    console.error("[renderer] theme render failed:", error);
+    return null;
   }
-
-  return (
-    <main className="public-site">
-      <section className="hero">
-        <p className="eyebrow">Portal preview</p>
-        <h1>{site.page?.title ?? site.website.name}</h1>
-        <p>{extractSummary(site.page?.content) ?? "This website preview is ready."}</p>
-      </section>
-    </main>
-  );
 }
+
+function siteMetadata(site: PublicSiteResponse | null): Metadata {
+  if (!site) {
+    return { title: "Site not connected" };
+  }
+  if (site.website.status !== "PUBLISHED") {
+    return { title: site.website.name };
+  }
+  const seo = (site.page?.seo ?? {}) as Record<string, unknown>;
+  const metaTitle = typeof seo.metaTitle === "string" && seo.metaTitle.trim() ? seo.metaTitle : (site.page?.title ?? site.website.name);
+  const metaDescription = typeof seo.metaDescription === "string" && seo.metaDescription.trim() ? seo.metaDescription : undefined;
+  return {
+    title: metaTitle,
+    ...(metaDescription ? { description: metaDescription } : {}),
+  };
+}
+
+/** Deduped per-request: generateMetadata and the page body both call this for the same path, and should only hit the API once. */
+const fetchPublicSite = cache(async (path: string): Promise<PublicSiteResponse | null> => {
+  const requestHeaders = await headers();
+  const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host") ?? "";
+  return resolveSite(host, path);
+});
+
+const fetchPreviewSite = cache(async (websiteId: string, path: string): Promise<PublicSiteResponse | null> => {
+  return resolvePreviewSite(websiteId, path);
+});
 
 async function resolveSite(host: string, path: string): Promise<PublicSiteResponse | null> {
   const apiBaseUrl = process.env.API_BASE_URL ?? "http://localhost:4000";

@@ -13,6 +13,7 @@ import {
   DomainVerificationStatus,
   PageStatus,
   Prisma,
+  ThemeStatus,
   WebsiteStatus,
 } from "../../core/database/database.js";
 import { requiredHostname, requiredSlug, requiredString } from "../../core/common/input.js";
@@ -207,33 +208,7 @@ export class WebsitesService {
       select: {
         hostname: true,
         website: {
-          select: {
-            id: true,
-            name: true,
-            slug: true,
-            status: true,
-            homePage: {
-              select: publicPageSelect,
-            },
-            pages: {
-              where: {
-                status: PageStatus.PUBLISHED,
-                slug: requestedPath,
-              },
-              take: 1,
-              select: publicPageSelect,
-            },
-            themes: {
-              where: {
-                isActive: true,
-              },
-              take: 1,
-              select: {
-                name: true,
-                tokens: true,
-              },
-            },
-          },
+          select: publicWebsiteSelect(requestedPath),
         },
       },
     });
@@ -667,6 +642,7 @@ const publicPageSelect = {
   title: true,
   slug: true,
   seo: true,
+  templateId: true,
   publishedVersion: {
     select: {
       content: true,
@@ -701,6 +677,25 @@ function publicWebsiteSelect(requestedPath: string) {
         tokens: true,
       },
     },
+    // The theme-engine payload a public renderer needs to actually draw a
+    // page: the published installation's active version carries the full
+    // uploaded source, the merchant's customizer settings, and the parsed
+    // manifest together in one immutable row (see ThemeInstallationsService.publish).
+    themeInstallations: {
+      where: {
+        status: ThemeStatus.PUBLISHED,
+      },
+      take: 1,
+      select: {
+        activeVersion: {
+          select: {
+            files: true,
+            settings: true,
+            manifest: true,
+          },
+        },
+      },
+    },
   } satisfies Prisma.WebsiteSelect;
 }
 
@@ -712,6 +707,7 @@ function buildPublicSiteResponse(
   const requestedPage = website.pages[0] ?? null;
   const page = requestedPage ?? (requestedPath === "home" ? website.homePage : null);
   const publishedVersion = page?.publishedVersion ?? null;
+  const activeVersion = website.themeInstallations[0]?.activeVersion ?? null;
 
   return {
     hostname,
@@ -727,10 +723,18 @@ function buildPublicSiteResponse(
           title: page.title,
           slug: page.slug,
           seo: page.seo,
+          templateId: page.templateId,
           content: publishedVersion?.content ?? null,
         }
       : null,
     theme: website.themes[0] ?? null,
+    themeEngine: activeVersion
+      ? {
+          files: activeVersion.files,
+          settings: activeVersion.settings,
+          manifest: activeVersion.manifest,
+        }
+      : null,
   };
 }
 

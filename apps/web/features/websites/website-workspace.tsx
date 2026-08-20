@@ -912,8 +912,8 @@ export function WebsiteWorkspace({
 
       {section === "themes" ? (
         <>
-          <section className="grid items-start gap-4 xl:grid-cols-[minmax(280px,0.34fr)_minmax(0,1fr)]">
-            <Card className="overflow-hidden border-primary/15 bg-surface shadow-sm shadow-slate-950/5">
+          <section className="grid items-start gap-4 xl:grid-cols-[300px_minmax(0,1fr)]">
+            <Card>
               <div className="rounded-lg border bg-surface-secondary/60 p-4">
                 <div className="flex size-10 items-center justify-center rounded-lg bg-primary text-primary-foreground">
                   <Palette className="size-[18px]" />
@@ -955,8 +955,8 @@ export function WebsiteWorkspace({
                 }
               />
               {currentTheme ? (
-                <div className="rounded-lg border bg-surface-secondary/30 p-4 shadow-sm shadow-slate-950/5">
-                  <div className="grid gap-5 lg:grid-cols-[280px_minmax(0,1fr)]">
+                <div className="rounded-lg border bg-surface-secondary/30 p-4">
+                  <div className="grid gap-4 lg:grid-cols-[240px_minmax(0,1fr)]">
                     <ThemePreviewCard theme={currentTheme} />
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-start justify-between gap-3">

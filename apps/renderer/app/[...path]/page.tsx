@@ -1,8 +1,14 @@
-import { renderPublicPage } from "../public-renderer";
+import { publicPageMetadata, renderPublicPage } from "../public-renderer";
 
-export default async function PublicPathPage({ params }: { params: Promise<{ path?: string[] }> }) {
+async function resolvePath({ params }: { params: Promise<{ path?: string[] }> }) {
   const resolvedParams = await params;
-  const path = `/${resolvedParams.path?.join("/") ?? ""}`;
+  return `/${resolvedParams.path?.join("/") ?? ""}`;
+}
 
-  return renderPublicPage(path);
+export async function generateMetadata(props: { params: Promise<{ path?: string[] }> }) {
+  return publicPageMetadata(await resolvePath(props));
+}
+
+export default async function PublicPathPage(props: { params: Promise<{ path?: string[] }> }) {
+  return renderPublicPage(await resolvePath(props));
 }

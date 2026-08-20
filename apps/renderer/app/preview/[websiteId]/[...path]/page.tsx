@@ -1,12 +1,16 @@
-import { renderPreviewPage } from "../../../public-renderer";
+import { previewPageMetadata, renderPreviewPage } from "../../../public-renderer";
 
-export default async function PreviewPathPage({
-  params,
-}: {
-  params: Promise<{ websiteId: string; path?: string[] }>;
-}) {
+async function resolveParams({ params }: { params: Promise<{ websiteId: string; path?: string[] }> }) {
   const resolvedParams = await params;
-  const path = `/${resolvedParams.path?.join("/") ?? ""}`;
+  return { websiteId: resolvedParams.websiteId, path: `/${resolvedParams.path?.join("/") ?? ""}` };
+}
 
-  return renderPreviewPage(resolvedParams.websiteId, path);
+export async function generateMetadata(props: { params: Promise<{ websiteId: string; path?: string[] }> }) {
+  const { websiteId, path } = await resolveParams(props);
+  return previewPageMetadata(websiteId, path);
+}
+
+export default async function PreviewPathPage(props: { params: Promise<{ websiteId: string; path?: string[] }> }) {
+  const { websiteId, path } = await resolveParams(props);
+  return renderPreviewPage(websiteId, path);
 }
