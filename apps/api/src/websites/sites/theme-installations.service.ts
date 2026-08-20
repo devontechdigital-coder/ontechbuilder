@@ -20,6 +20,15 @@ interface BaseInput {
   websiteId: string;
 }
 
+/**
+ * A theme's `files` blob (used in create/duplicate, upload, and publish)
+ * commonly runs to 50+ files — writing that as one row against a remote
+ * Postgres instance routinely exceeds Prisma's 5s default interactive
+ * transaction timeout, failing the whole write with a P2028 error that a
+ * caller who doesn't inspect the network tab has no way to notice.
+ */
+const THEME_WRITE_TX_OPTIONS = { timeout: 30_000, maxWait: 10_000 };
+
 interface InstallationInput extends BaseInput {
   installationId: string;
 }
@@ -118,7 +127,7 @@ export class ThemeInstallationsService {
         where: { id: installation.id, tenantId: input.tenantId, websiteId: input.websiteId },
         select: installationSelect,
       });
-    });
+    }, THEME_WRITE_TX_OPTIONS);
   }
 
   async upload(input: BaseInput & { name?: unknown; file?: { buffer?: Buffer; originalname?: string } }) {
@@ -200,7 +209,7 @@ export class ThemeInstallationsService {
         where: { id: installation.id, tenantId: input.tenantId, websiteId: input.websiteId },
         select: installationSelect,
       });
-    });
+    }, THEME_WRITE_TX_OPTIONS);
   }
 
   async getDraft(input: InstallationInput) {
@@ -385,7 +394,7 @@ export class ThemeInstallationsService {
         where: { id: input.installationId, tenantId: input.tenantId, websiteId: input.websiteId },
         select: installationSelect,
       });
-    });
+    }, THEME_WRITE_TX_OPTIONS);
   }
 
   async listVersions(input: InstallationInput) {

@@ -146,14 +146,20 @@ export function ThemeCustomizerPage({
   }, [groups, selected]);
 
   useEffect(() => {
-    if (!pageOptions.length) return;
+    // Before the draft/page list has actually loaded, getCustomizerPageOptions
+    // returns a one-item PLACEHOLDER ([{ id: "template-home", ... }]), never a
+    // true empty array — so `pageOptions.length` alone can't tell "not loaded
+    // yet" from "real data". Syncing against that placeholder would resolve
+    // initialPageId to nothing, fall back to it, and then (since it already
+    // matches syncedInitialPageIdRef) never re-sync once the real pages arrive.
+    if (!draft || !pageOptions.length) return;
     const initialPageIdChanged = syncedInitialPageIdRef.current !== initialPageId;
     if (selectedPageId && !initialPageIdChanged) return;
     syncedInitialPageIdRef.current = initialPageId;
     const initial = initialPageId ? pageOptions.find((option) => option.id === initialPageId) : undefined;
     setSelectedPageId((initial ?? pageOptions[0]!).id);
     setSelected({ kind: "theme" });
-  }, [initialPageId, pageOptions, selectedPageId]);
+  }, [draft, initialPageId, pageOptions, selectedPageId]);
 
   function changePage(nextPageId: string) {
     setSelectedPageId(nextPageId);
@@ -826,12 +832,24 @@ function TopBar({
 
         <MoreMenu settings={settings} onExportPage={onExportPage} onImportPageClick={onImportPageClick} />
 
-        <Button type="button" size="sm" variant="secondary" disabled={saving} onClick={onSave}>
-          {saving ? "Saving…" : "Save"}
-        </Button>
-        <Button type="button" size="sm" disabled={publishing} onClick={onPublish}>
-          {publishing ? "Publishing…" : "Publish"}
-        </Button>
+        {lockedToPage ? (
+          // Editing one page — publish already saves the draft first (see
+          // publishTheme), so a single button that does both reads as one
+          // action here instead of a two-step save-then-publish the direct
+          // theme-wide customizer still needs.
+          <Button type="button" size="sm" disabled={saving || publishing} onClick={onPublish} title="Saves and makes this live">
+            {saving || publishing ? "Saving…" : "Save"}
+          </Button>
+        ) : (
+          <>
+            <Button type="button" size="sm" variant="secondary" disabled={saving} onClick={onSave}>
+              {saving ? "Saving…" : "Save"}
+            </Button>
+            <Button type="button" size="sm" disabled={publishing} onClick={onPublish}>
+              {publishing ? "Publishing…" : "Publish"}
+            </Button>
+          </>
+        )}
       </div>
     </header>
   );
