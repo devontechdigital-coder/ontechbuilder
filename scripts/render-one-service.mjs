@@ -29,6 +29,10 @@ const children = [
   startProcess("renderer", process.execPath, [nextBin, "start", "-p", String(rendererPort)], {
     PORT: String(rendererPort),
     API_BASE_URL: process.env.RENDERER_API_BASE_URL ?? `http://127.0.0.1:${apiPort}`,
+    // The renderer calls its OWN /api/render-theme route (theme rendering has
+    // to run outside Next's App Router module graph — see that route's own
+    // comment) via a real HTTP self-call, so it needs to know its own port.
+    RENDERER_INTERNAL_URL: process.env.RENDERER_INTERNAL_URL ?? `http://127.0.0.1:${rendererPort}`,
   }, rendererDirectory),
 ];
 

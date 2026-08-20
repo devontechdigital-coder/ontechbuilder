@@ -89,7 +89,11 @@ async function renderThemedPage(page: NonNullable<PublicSiteResponse["page"]>, t
       templateId,
       pageKey: page.id,
     };
-    const rendererBaseUrl = process.env.RENDERER_INTERNAL_URL ?? "http://localhost:3001";
+    // RENDERER_INTERNAL_URL is set explicitly in the render-one-service deployment
+    // (this app's own port there is 4102-ish, not 3001) — process.env.PORT is a
+    // second line of defense since that deployment sets it to the same value;
+    // "3001" only applies to plain local dev (`next dev --port 3001`, no PORT env set).
+    const rendererBaseUrl = process.env.RENDERER_INTERNAL_URL ?? `http://127.0.0.1:${process.env.PORT ?? 3001}`;
     const response = await fetch(`${rendererBaseUrl}/api/render-theme`, {
       method: "POST",
       headers: { "content-type": "application/json" },
