@@ -79,6 +79,8 @@ export function ThemeCustomizerPage({
   const [publishing, setPublishing] = useState(false);
   const canvasFrameRef = useRef<HTMLIFrameElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
+  /** Tracks the last `initialPageId` this component synced to, so a change in that prop (navigating from one page's builder link to another's, which Next.js re-renders in place rather than remounting) forces the switcher — and the actual content being edited — to follow, instead of staying stuck on whichever page loaded first. */
+  const syncedInitialPageIdRef = useRef<string | undefined>(undefined);
   /**
    * Bumped every time the canvas frame announces itself (0 = never yet).
    * A plain boolean raced with the iframe's own `load` event: `load` fires
@@ -144,9 +146,13 @@ export function ThemeCustomizerPage({
   }, [groups, selected]);
 
   useEffect(() => {
-    if (selectedPageId || !pageOptions.length) return;
+    if (!pageOptions.length) return;
+    const initialPageIdChanged = syncedInitialPageIdRef.current !== initialPageId;
+    if (selectedPageId && !initialPageIdChanged) return;
+    syncedInitialPageIdRef.current = initialPageId;
     const initial = initialPageId ? pageOptions.find((option) => option.id === initialPageId) : undefined;
     setSelectedPageId((initial ?? pageOptions[0]!).id);
+    setSelected({ kind: "theme" });
   }, [initialPageId, pageOptions, selectedPageId]);
 
   function changePage(nextPageId: string) {
