@@ -4,6 +4,8 @@ import { parseThemeEngineManifest, type ThemeEngineManifest } from "./manifest";
 const THEME_CSS_PATH = "assets/styles/theme.css";
 const THEME_LAYOUT_PATH = "layout/ThemeLayout.tsx";
 const SECTION_REGISTRY_PATH = "components/sectionRegistry.tsx";
+/** Optional — only themes that keep header/footer in their own `partials/` directory (see schema-parser.ts's isSectionSchemaPath) ship this. */
+const PARTIAL_REGISTRY_PATH = "components/partialRegistry.tsx";
 const SETTINGS_DEFAULT_PATH = "config/settings.default.ts";
 
 export type ThemeEngineBundle = {
@@ -132,6 +134,32 @@ const BOOTSTRAP_SCRIPT = `
       out.push({ id: section.id, type: section.schemaId, props: buildSectionProps(section) });
     }
     return out;
+  }
+
+  // A theme with several header/footer designs (see schema-parser.ts's isSectionSchemaPath) picks
+  // the live one through a global setting rather than the header/footer group's instance list
+  // (e.g. Copora's "headerVariant": "classic" | "dentora" | "skyvilla" selects between the
+  // "header"/"header-dentora"/"header-skyvilla" partials) — so if the merchant has added more than
+  // one header/footer instance, only render whichever one that setting currently points at, rather
+  // than stacking all of them. Themes with just one instance (the common case) are unaffected.
+  function pickActiveVariant(instances, groupName, settings) {
+    if (instances.length <= 1) return instances;
+    var variantKey = null;
+    for (var key in settings) {
+      if (!Object.prototype.hasOwnProperty.call(settings, key)) continue;
+      var lower = key.toLowerCase();
+      if (lower.indexOf(groupName) === 0 && (lower.indexOf("variant") !== -1 || lower.indexOf("style") !== -1 || lower.indexOf("layout") !== -1)) {
+        variantKey = key;
+        break;
+      }
+    }
+    if (!variantKey) return instances;
+    var value = String(settings[variantKey] || "").toLowerCase();
+    if (!value) return instances;
+    var specific = instances.filter(function (inst) { return inst.type === groupName + "-" + value; });
+    if (specific.length) return specific;
+    var canonical = instances.filter(function (inst) { return inst.type === groupName; });
+    return canonical.length ? canonical : instances;
   }
 
   // If one section throws while rendering (bad data, a theme bug, an edit
@@ -552,6 +580,23 @@ const BOOTSTRAP_SCRIPT = `
       var registry = registryModule.sectionRegistry;
       if (!registry) throw new Error("Theme has no sectionRegistry export at " + manifest.sectionRegistryPath);
 
+      // Some themes keep header/footer (and any per-vertical variants of them) in their own
+      // partials/ directory with a separate partialRegistry.tsx, rather than folding them into
+      // sectionRegistry — see schema-parser.ts's isSectionSchemaPath. Their instance types never
+      // collide with body section ids, so merging is safe; without this, header/footer group
+      // instances would look up nothing in the registry and wrapInstances would render them as
+      // nothing at all.
+      if (manifest.partialRegistryPath) {
+        var partialModule = requireModule("__root__", "./" + manifest.partialRegistryPath);
+        var partialRegistry = partialModule.partialRegistry;
+        if (partialRegistry) {
+          var mergedRegistry = {};
+          for (var srKey in registry) if (Object.prototype.hasOwnProperty.call(registry, srKey)) mergedRegistry[srKey] = registry[srKey];
+          for (var prKey in partialRegistry) if (Object.prototype.hasOwnProperty.call(partialRegistry, prKey)) mergedRegistry[prKey] = partialRegistry[prKey];
+          registry = mergedRegistry;
+        }
+      }
+
       // Body sections are rendered by the TEMPLATE's own code calling its
       // own RenderSections internally (templates/*.tsx do this themselves,
       // some — like page.tsx — wrap it with extra template-specific markup
@@ -583,8 +628,10 @@ const BOOTSTRAP_SCRIPT = `
       var TemplateComponent = templateModule.default;
       if (!TemplateComponent) throw new Error("Template has no default export: " + templatePath);
 
-      var header = React.createElement(React.Fragment, null, wrapInstances(toThemeInstances(payload.groups.header), registry));
-      var footer = React.createElement(React.Fragment, null, wrapInstances(toThemeInstances(payload.groups.footer), registry));
+      var headerInstances = pickActiveVariant(toThemeInstances(payload.groups.header), "header", settings);
+      var footerInstances = pickActiveVariant(toThemeInstances(payload.groups.footer), "footer", settings);
+      var header = React.createElement(React.Fragment, null, wrapInstances(headerInstances, registry));
+      var footer = React.createElement(React.Fragment, null, wrapInstances(footerInstances, registry));
       var bodyProps = { sections: toThemeInstances(payload.groups.template), query: "", results: [], resultCount: 0 };
       var body = React.createElement(TemplateComponent, bodyProps);
 
@@ -698,6 +745,7 @@ export function buildThemeEngineBundle(files: Record<string, string>, parentOrig
       templatePaths: manifest.templatePaths,
       themeLayoutPath: THEME_LAYOUT_PATH,
       sectionRegistryPath: SECTION_REGISTRY_PATH,
+      partialRegistryPath: files[PARTIAL_REGISTRY_PATH] ? PARTIAL_REGISTRY_PATH : null,
       settingsDefaultPath: files[SETTINGS_DEFAULT_PATH] ? SETTINGS_DEFAULT_PATH : null,
     },
     parentOrigin,

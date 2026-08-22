@@ -12,6 +12,7 @@ import { Checkbox, Field, Input, Textarea } from "../../../components/ui/form";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../../components/ui/tabs";
 import { ColorField, ImageField, RangeField, SegmentedField, SelectField } from "./controls";
 import { SECTION_DESIGN_FIELDS } from "./design-fields";
+import { isNestedLinksField, NestedLinksEditor } from "./nested-links-editor";
 import { groupSettings } from "./state";
 import type { SectionGroups, SectionSchema, SelectedItem, ThemeSetting } from "./types";
 
@@ -105,7 +106,10 @@ export function CustomizerInspector({
   }
 
   return (
-    <div className="grid gap-4 p-3">
+    // Keyed by block.id: NestedLinksEditor below keeps its own drag/edit state internally rather
+    // than re-deriving it from `value` on every keystroke, so without this key switching to a
+    // different block would leave the previous block's rows on screen instead of the new one's.
+    <div key={block.id} className="grid gap-4 p-3">
       <InspectorHeader
         title={block.name}
         menu={<RowActionMenu onDelete={() => onDeleteBlock(section.id, block.id)} onDuplicate={() => onDuplicateBlock(section.id, block.id)} />}
@@ -180,6 +184,13 @@ function ThemeSettingControl({ control, onChange, value }: { control: ThemeSetti
   if (control.type === "boolean" || control.type === "checkbox") {
     return <Checkbox label={control.label} checked={Boolean(value)} onChange={(event) => onChange(event.target.checked)} />;
   }
+  if (control.type === "textarea" && isNestedLinksField(control.id)) {
+    return (
+      <Field label={control.label} {...(control.info ? { hint: control.info } : {})}>
+        <NestedLinksEditor value={String(value ?? control.default ?? "[]")} onChange={onChange} />
+      </Field>
+    );
+  }
   if (control.type === "textarea" || control.type === "richtext") {
     return (
       <Field label={control.label} {...(control.info ? { hint: control.info } : {})}>
@@ -189,9 +200,18 @@ function ThemeSettingControl({ control, onChange, value }: { control: ThemeSetti
   }
   if (control.type === "select") {
     const options = control.options ?? [];
+    // A segmented control only reads well when its labels are short enough to stay legible once
+    // they all share one narrow sidebar row. Four moderate labels (e.g. "Narrow (960px)" / "Default
+    // (1240px)" / "Wide (1400px)" / "Full width" — ~14 chars average) still don't fit even though no
+    // single one looks unreasonably long on its own, so this checks the combined width in play (every
+    // label individually, and all of them together) rather than just the longest one. A dropdown
+    // shows each option on its own full-width row instead, so there's no width budget to blow.
+    const labels = options.map((option) => (typeof option === "string" ? option : option.label));
+    const totalLength = labels.reduce((sum, label) => sum + label.length, 0);
+    const fitsSegmented = options.length <= SEGMENTED_OPTION_LIMIT && labels.every((label) => label.length <= 16) && totalLength <= 30;
     return (
       <Field label={control.label} {...(control.info ? { hint: control.info } : {})}>
-        {options.length <= SEGMENTED_OPTION_LIMIT ? (
+        {fitsSegmented ? (
           <SegmentedField options={options} value={String(value ?? control.default ?? "")} onChange={onChange} />
         ) : (
           <SelectField options={options} value={String(value ?? control.default ?? "")} onChange={onChange} />

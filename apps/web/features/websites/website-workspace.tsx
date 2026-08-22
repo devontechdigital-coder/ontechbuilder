@@ -714,8 +714,7 @@ export function WebsiteWorkspace({
               description="Search, filter, and open builder-ready pages for this website."
               actions={
                 <div className="flex flex-wrap gap-2">
-                  <ThemeButton onClick={() => setThemeOpen(true)} />
-                  <Button
+                   <Button
                     type="button"
                     onClick={() => {
                       setPageTemplateId(defaultTemplateId(false));

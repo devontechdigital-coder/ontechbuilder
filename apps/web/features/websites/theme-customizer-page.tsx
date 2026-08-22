@@ -212,7 +212,12 @@ export function ThemeCustomizerPage({
 
   function updateGroup(group: SectionGroupKey, updater: (sections: SectionInstance[]) => SectionInstance[], options?: { coalesce?: boolean }) {
     commitSettings((current) => {
-      const sections = getGroupSections(current, group, pageKey, sectionSchemas);
+      // Omitting templateScope here used to silently fall through to "every schema in this
+      // group" whenever the page had no sections saved yet (getGroupSections only applies the
+      // template's real, often-empty default list when it's given the scope) — so the very
+      // first edit on a blank template populated every section at once instead of just the one
+      // being added.
+      const sections = getGroupSections(current, group, pageKey, sectionSchemas, templateScope);
       return setGroupSections(current, group, pageKey, updater(sections), sectionSchemas);
     }, options);
   }
@@ -994,14 +999,21 @@ function VerticalSplit({
 
   return (
     <div ref={containerRef} className="grid min-h-0 flex-1" style={{ gridTemplateRows: `minmax(0,${ratio}fr) 5px minmax(0,${1 - ratio}fr)` }}>
-      <div className="min-h-0 overflow-y-auto">{top}</div>
+      {/*
+        overflow-x-hidden is load-bearing, not decorative: per the CSS Overflow spec, setting only
+        overflow-y computes the other axis to "auto" too, not "visible" — so any child that
+        overflows horizontally (a segmented control with long labels, a long section name, ...)
+        was showing a horizontal scrollbar here instead of being contained/truncated by that
+        child's own layout. Sidebar content should never need to scroll sideways.
+      */}
+      <div className="min-h-0 overflow-y-auto overflow-x-hidden">{top}</div>
       <div
         onMouseDown={() => setDragging(true)}
         className={cn("relative flex cursor-row-resize items-center justify-center border-y", dragging ? "bg-info/15" : "hover:bg-surface-secondary")}
       >
         <span className="h-1 w-8 rounded-full bg-border" />
       </div>
-      <div className="min-h-0 overflow-y-auto bg-surface-secondary/20">{bottom}</div>
+      <div className="min-h-0 overflow-y-auto overflow-x-hidden bg-surface-secondary/20">{bottom}</div>
     </div>
   );
 }

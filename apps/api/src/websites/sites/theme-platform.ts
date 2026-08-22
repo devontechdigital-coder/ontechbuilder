@@ -4,9 +4,9 @@ import { ThemeChangeType, ThemeStatus, type Prisma } from "../../core/database/d
 
 export const maxThemeFileBytes = 128_000;
 export const maxThemeZipBytes = 5_000_000;
-export const maxThemeZipFiles = 250;
-const allowedDirectories = ["config", "layout", "templates", "sections", "components", "assets", "locales"];
-const allowedExtensions = [".ts", ".tsx", ".js", ".jsx", ".css", ".json", ".md"];
+export const maxThemeZipFiles = 500;
+const allowedDirectories = ["config", "layout", "templates", "sections", "components", "assets", "locales", "types", "partials"];
+const allowedExtensions = [".ts", ".tsx", ".js", ".jsx", ".css", ".json", ".md", ".svg"];
 const forbiddenText = [
   /\bnode:/i,
   /from\s+["']fs["']/i,
@@ -17,6 +17,7 @@ const forbiddenText = [
   /new\s+Function\s*\(/i,
   /import\s*\(/i,
 ];
+const forbiddenSvgContent = [/<script/i, /\bon[a-z]+\s*=/i, /javascript:/i, /<foreignObject/i];
 
 export const starterManifest = {
   id: "starter",
@@ -356,6 +357,9 @@ export function validateThemeFileContent(path: string, content: unknown): string
   if ((path.endsWith(".ts") || path.endsWith(".tsx") || path.endsWith(".js") || path.endsWith(".jsx")) && forbiddenText.some((pattern) => pattern.test(value))) {
     throw new BadRequestException("Theme file contains forbidden APIs or imports");
   }
+  if (path.endsWith(".svg") && forbiddenSvgContent.some((pattern) => pattern.test(value))) {
+    throw new BadRequestException("Theme SVG contains scripts or event handlers");
+  }
   if (path.endsWith(".json")) {
     try {
       JSON.parse(value);
@@ -474,11 +478,11 @@ function extractThemeZipFiles(buffer: Buffer) {
   }
 
   const entries = readZipEntries(buffer);
-  if (entries.length > maxThemeZipFiles) {
+  const fileEntries = entries.filter((entry) => !entry.path.endsWith("/") && !entry.path.includes("__MACOSX/"));
+  if (fileEntries.length > maxThemeZipFiles) {
     throw new BadRequestException("Theme ZIP contains too many files");
   }
 
-  const fileEntries = entries.filter((entry) => !entry.path.endsWith("/") && !entry.path.includes("__MACOSX/"));
   const rootPrefix = inferRootPrefix(fileEntries.map((entry) => entry.path));
   const files: Record<string, string> = {};
 

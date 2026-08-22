@@ -45,6 +45,7 @@ export function ThemeCodeEditorPage({
   const [fileContent, setFileContent] = useState("");
   const [fileSearch, setFileSearch] = useState("");
   const [openFiles, setOpenFiles] = useState<string[]>([]);
+  const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
   const [unsaved, setUnsaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -57,7 +58,16 @@ export function ThemeCodeEditorPage({
     return paths.filter((path) => !normalized || path.toLowerCase().includes(normalized));
   }, [fileSearch, paths]);
 
-  const groupedFiles = useMemo(() => groupThemeFiles(filteredPaths), [filteredPaths]);
+  const fileTree = useMemo(() => buildFileTree(filteredPaths), [filteredPaths]);
+
+  function toggleFolder(path: string) {
+    setCollapsedFolders((current) => {
+      const next = new Set(current);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  }
 
   useEffect(() => {
     async function load() {
@@ -208,28 +218,16 @@ export function ThemeCodeEditorPage({
             </div>
           </div>
           <div className="min-h-0 overflow-y-auto overscroll-contain p-2 pb-10">
-            {Object.entries(groupedFiles).map(([directory, files]) => (
-              <div key={directory} className="mb-2">
-                <div className="flex items-center gap-2 px-2 py-1 text-xs font-semibold uppercase text-slate-400">
-                  <Folder className="size-4 text-sky-400" />
-                  {directory}
-                </div>
-                {files.map((path) => (
-                  <button
-                    key={path}
-                    type="button"
-                    className={`flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm ${
-                      path === selectedFilePath
-                        ? "bg-sky-500/15 text-sky-100"
-                        : "text-slate-300 hover:bg-slate-800/80 hover:text-white"
-                    }`}
-                    onClick={() => selectFile(path)}
-                  >
-                    <FileCode2 className="size-4 text-amber-300" />
-                    <span className="truncate">{path.split("/").pop()}</span>
-                  </button>
-                ))}
-              </div>
+            {fileTree.map((node) => (
+              <FileTreeNode
+                key={node.path}
+                node={node}
+                depth={0}
+                collapsedFolders={collapsedFolders}
+                selectedFilePath={selectedFilePath}
+                onToggleFolder={toggleFolder}
+                onSelectFile={selectFile}
+              />
             ))}
           </div>
         </aside>
@@ -336,12 +334,110 @@ function InfoRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function groupThemeFiles(paths: string[]) {
-  return paths.reduce<Record<string, string[]>>((groups, path) => {
-    const directory = path.includes("/") ? path.split("/")[0] ?? "root" : "root";
-    groups[directory] = [...(groups[directory] ?? []), path];
-    return groups;
-  }, {});
+type FileTreeEntry =
+  | { type: "folder"; name: string; path: string; children: FileTreeEntry[] }
+  | { type: "file"; name: string; path: string };
+
+/**
+ * Mirrors the uploaded theme's real folder structure exactly (sections/Header/, sections/Header/variants/,
+ * sections/Footer/, ...) rather than bucketing every file under just its top-level directory — a theme with
+ * subfolders per section otherwise dumps hundreds of files into one flat "sections" list with no way to tell
+ * which section, or which of header/footer/variants, any given file belongs to.
+ */
+function buildFileTree(paths: string[]): FileTreeEntry[] {
+  const root: FileTreeEntry[] = [];
+  for (const path of paths) {
+    const parts = path.split("/");
+    let siblings = root;
+    let builtPath = "";
+    parts.forEach((part, index) => {
+      builtPath = builtPath ? `${builtPath}/${part}` : part;
+      const isFile = index === parts.length - 1;
+      if (isFile) {
+        siblings.push({ type: "file", name: part, path: builtPath });
+        return;
+      }
+      let folder = siblings.find((entry): entry is Extract<FileTreeEntry, { type: "folder" }> => entry.type === "folder" && entry.name === part);
+      if (!folder) {
+        folder = { type: "folder", name: part, path: builtPath, children: [] };
+        siblings.push(folder);
+      }
+      siblings = folder.children;
+    });
+  }
+  sortFileTree(root);
+  return root;
+}
+
+function sortFileTree(entries: FileTreeEntry[]) {
+  entries.sort((first, second) => {
+    if (first.type !== second.type) return first.type === "folder" ? -1 : 1;
+    return first.name.localeCompare(second.name);
+  });
+  for (const entry of entries) if (entry.type === "folder") sortFileTree(entry.children);
+}
+
+function FileTreeNode({
+  node,
+  depth,
+  collapsedFolders,
+  selectedFilePath,
+  onToggleFolder,
+  onSelectFile,
+}: {
+  node: FileTreeEntry;
+  depth: number;
+  collapsedFolders: Set<string>;
+  selectedFilePath: string;
+  onToggleFolder: (path: string) => void;
+  onSelectFile: (path: string) => void;
+}) {
+  const indent = 12 + depth * 14;
+
+  if (node.type === "file") {
+    return (
+      <button
+        type="button"
+        style={{ paddingLeft: indent }}
+        className={`flex w-full items-center gap-2 rounded-md py-1.5 pr-3 text-left text-sm ${
+          node.path === selectedFilePath ? "bg-sky-500/15 text-sky-100" : "text-slate-300 hover:bg-slate-800/80 hover:text-white"
+        }`}
+        onClick={() => onSelectFile(node.path)}
+      >
+        <FileCode2 className="size-4 shrink-0 text-amber-300" />
+        <span className="truncate">{node.name}</span>
+      </button>
+    );
+  }
+
+  const isOpen = !collapsedFolders.has(node.path);
+  return (
+    <div>
+      <button
+        type="button"
+        style={{ paddingLeft: indent - 4 }}
+        className="flex w-full items-center gap-1.5 rounded-md py-1 pr-3 text-left text-[13px] font-semibold text-slate-400 hover:bg-slate-800/60 hover:text-slate-200"
+        onClick={() => onToggleFolder(node.path)}
+      >
+        <ChevronRight className={`size-3.5 shrink-0 transition-transform ${isOpen ? "rotate-90" : ""}`} />
+        <Folder className="size-4 shrink-0 text-sky-400" />
+        <span className="truncate">{node.name}</span>
+      </button>
+      {isOpen
+        ? node.children.map((child) => (
+            <FileTreeNode
+              key={child.path}
+              node={child}
+              depth={depth + 1}
+              collapsedFolders={collapsedFolders}
+              selectedFilePath={selectedFilePath}
+              onToggleFolder={onToggleFolder}
+              onSelectFile={onSelectFile}
+            />
+          ))
+        : null}
+    </div>
+  );
 }
 
 function highlightCode(value: string) {

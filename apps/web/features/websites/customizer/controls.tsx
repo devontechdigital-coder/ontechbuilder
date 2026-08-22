@@ -30,7 +30,10 @@ export function SegmentedField({ onChange, options, value }: { onChange: (value:
             aria-checked={active}
             onClick={() => onChange(option.value)}
             className={cn(
-              "flex-1 truncate rounded-[5px] px-2 py-1.5 text-[12px] font-medium transition-colors",
+              // min-w-0 is load-bearing: a flex-1 item defaults to min-width:auto, so without it
+              // truncate never engages and a long option label (e.g. "Classic (mega menu, phone
+              // number)") pushes the whole control past the sidebar's edge instead of ellipsizing.
+              "min-w-0 flex-1 truncate rounded-[5px] px-2 py-1.5 text-[12px] font-medium transition-colors",
               active ? "bg-surface text-foreground shadow-sm shadow-slate-950/10" : "text-muted-foreground hover:text-foreground",
             )}
           >

@@ -1,14 +1,17 @@
 "use client";
 
-import { ChevronRight, Copy, GripVertical, Plus, Power, Settings2, Trash2 } from "lucide-react";
-import { useRef, useState } from "react";
+import { ChevronRight, Copy, GripVertical, Plus, Power, Search, Settings2, Trash2 } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "../../../components/ui/dropdown-menu";
+import { Input } from "../../../components/ui/form";
+import { Modal } from "../../../components/ui/overlay";
 import { cn } from "../../../lib/utils";
+import { sectionIcon } from "./section-icons";
 import { groupSchemas, MAX_BLOCK_DEPTH } from "./state";
 import type { SectionGroupKey, SectionGroups, SectionInstance, SectionSchema, SelectedItem } from "./types";
 
@@ -360,22 +363,75 @@ function BlockList({
 }
 
 function AddSectionButton({ group, onAdd, schemas }: { group: SectionGroupKey; onAdd: (group: SectionGroupKey, schemaId?: string) => void; schemas: SectionSchema[] }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+
+  const filtered = useMemo(() => {
+    const term = query.trim().toLowerCase();
+    const matches = term ? schemas.filter((schema) => `${schema.name} ${schema.category}`.toLowerCase().includes(term)) : schemas;
+    const byCategory = new Map<string, SectionSchema[]>();
+    for (const schema of matches) {
+      const list = byCategory.get(schema.category) ?? [];
+      list.push(schema);
+      byCategory.set(schema.category, list);
+    }
+    return [...byCategory.entries()].sort(([first], [second]) => first.localeCompare(second));
+  }, [schemas, query]);
+
+  function handleAdd(schemaId: string) {
+    onAdd(group, schemaId);
+    setOpen(false);
+    setQuery("");
+  }
+
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button type="button" className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[12.5px] font-medium text-info transition-colors hover:bg-info/10">
-          <Plus className="size-3.5" />
-          Add section
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="max-h-72 overflow-y-auto">
-        {schemas.map((schema) => (
-          <DropdownMenuItem key={schema.id} onSelect={() => onAdd(group, schema.id)}>
-            {schema.name}
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[12.5px] font-medium text-info transition-colors hover:bg-info/10"
+      >
+        <Plus className="size-3.5" />
+        Add section
+      </button>
+      <Modal open={open} title="Add section" description="Pick a section to add to this page." onClose={() => setOpen(false)} className="max-w-2xl">
+        <div className="grid gap-4 p-5">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input autoFocus placeholder="Search sections" value={query} onChange={(event) => setQuery(event.target.value)} className="pl-8" />
+          </div>
+          {filtered.length ? (
+            <div className="grid gap-5">
+              {filtered.map(([category, categorySchemas]) => (
+                <div key={category} className="grid gap-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground/70">{category}</p>
+                  <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+                    {categorySchemas.map((schema) => {
+                      const Icon = sectionIcon(schema);
+                      return (
+                        <button
+                          key={schema.id}
+                          type="button"
+                          onClick={() => handleAdd(schema.id)}
+                          className="flex flex-col items-start gap-2.5 rounded-lg border bg-surface p-3 text-left transition-colors hover:border-info/40 hover:bg-info/5"
+                        >
+                          <span className="grid size-9 shrink-0 place-items-center rounded-md bg-info/10 text-info">
+                            <Icon className="size-4.5" />
+                          </span>
+                          <span className="min-w-0 text-[12.5px] font-medium leading-tight text-foreground">{schema.name}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="py-6 text-center text-[12.5px] text-muted-foreground">No sections match "{query}".</p>
+          )}
+        </div>
+      </Modal>
+    </>
   );
 }
 

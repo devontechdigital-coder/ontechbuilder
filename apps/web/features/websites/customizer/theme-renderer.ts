@@ -23,13 +23,25 @@ export type ThemeRendererResolution = {
 };
 
 /**
- * Curated themes (Aster, Copora, ...) get hand-matched schemas + template
- * scopes so their editor and preview render pixel-true to the real package.
- * Anything else falls back to the generic path: parse the uploaded theme's
- * own files first, then its manifest, so it's still schema-driven rather
- * than a blank fallback — just without a human-verified layout per section.
+ * A real uploaded theme's own files always win when it has section schemas to parse from them —
+ * that's the merchant's actual content. The curated Aster/Copora data below is a hand-matched
+ * fallback for installs that carry no uploaded files of their own to parse (nothing else to go
+ * on), matched by name as a last resort only. It must never come first: matching by a name
+ * substring ("aster", "copora") means any real uploaded theme that happens to share that name —
+ * or is a newer, larger evolution of the same theme, as this platform has already seen happen —
+ * would otherwise have its actual content silently replaced by this old, incomplete snapshot.
  */
 export function resolveThemeRenderer(theme: ThemeInstallationSummary | null, draft: ThemeDraftSummary | null): ThemeRendererResolution {
+  const uploadedSectionSchemas = getFileSectionSchemas(draft);
+  if (uploadedSectionSchemas.length) {
+    const uploadedGlobalSchema = getFileSettingsSchema(draft);
+    return {
+      globalSchema: uploadedGlobalSchema.length ? uploadedGlobalSchema : getDraftSettingsSchema(draft),
+      sectionSchemas: uploadedSectionSchemas,
+      getTemplateScope: (templateId: string) => getTemplateSectionScope(draft, templateId),
+    };
+  }
+
   if (isAsterTheme(theme, draft)) {
     return {
       globalSchema: ASTER_GLOBAL_SETTINGS,
@@ -46,11 +58,9 @@ export function resolveThemeRenderer(theme: ThemeInstallationSummary | null, dra
     };
   }
 
-  const uploadedGlobalSchema = getFileSettingsSchema(draft);
-  const uploadedSectionSchemas = getFileSectionSchemas(draft);
   return {
-    globalSchema: uploadedGlobalSchema.length ? uploadedGlobalSchema : getDraftSettingsSchema(draft),
-    sectionSchemas: uploadedSectionSchemas.length ? uploadedSectionSchemas : getDraftSectionSchemas(draft),
+    globalSchema: getDraftSettingsSchema(draft),
+    sectionSchemas: getDraftSectionSchemas(draft),
     getTemplateScope: (templateId: string) => getTemplateSectionScope(draft, templateId),
   };
 }

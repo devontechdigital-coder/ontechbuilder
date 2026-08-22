@@ -66,6 +66,11 @@ export function getGroupSections(
       .filter((schema): schema is SectionSchema => Boolean(schema))
       .map((schema) => createSectionInstance(schema, schema.id));
   }
+  // A theme with several header/footer designs (per-vertical variants) still schemas.id's all of
+  // them under category "Header"/"Footer" — every variant gets its own configurable instance from
+  // the start (so switching the theme's "which header/footer partial" global setting has content
+  // to switch TO immediately), and theme-engine/build-bundle.ts's pickActiveVariant renders only
+  // the one that setting currently points at, so they don't visibly stack on top of each other.
   return schemas.map((schema) => createSectionInstance(schema, schema.id));
 }
 
