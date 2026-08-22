@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, NotFoundException } from "@nestjs/common";
-import { PageStatus, PageVersionStatus } from "../../core/database/database.js";
+import { PageKind, PageStatus, PageVersionStatus } from "../../core/database/database.js";
 import { describe, expect, it, vi } from "vitest";
 import { PagesService } from "./pages.service.js";
 
@@ -60,8 +60,39 @@ describe("PagesService tenant and hierarchy boundaries", () => {
         websiteId: "website-a",
         title: "About",
         slug: "about",
+        kind: PageKind.PAGE,
         status: PageStatus.DRAFT,
       },
+      select: expect.any(Object),
+    });
+  });
+
+  it("creates blog posts with the blog kind", async () => {
+    const create = vi.fn().mockResolvedValue({ id: "blog-a", kind: PageKind.BLOG, status: PageStatus.DRAFT });
+    const prisma = {
+      $transaction: vi.fn((callback) =>
+        callback({
+          page: { create },
+        }),
+      ),
+    };
+    const service = new PagesService(prisma as never, createAccess() as never);
+
+    await service.createPage({
+      actorUserId: "user-a",
+      tenantId: "tenant-a",
+      websiteId: "website-a",
+      title: "Launch notes",
+      slug: "launch-notes",
+      kind: "blog",
+    });
+
+    expect(create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        kind: PageKind.BLOG,
+        title: "Launch notes",
+        slug: "launch-notes",
+      }),
       select: expect.any(Object),
     });
   });

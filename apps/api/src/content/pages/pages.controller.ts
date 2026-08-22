@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Inject, Param, Patch, Post, Query, Req, UseGuards } from "@nestjs/common";
-import { MembershipRole } from "../../core/database/database.js";
+import { MembershipRole, PageKind } from "../../core/database/database.js";
 import { AuthGuard } from "../../identity/auth/auth.guard.js";
 import { getActiveTenant, getAuthenticatedUser } from "../../identity/auth/auth-context.js";
 import { RequireRole } from "../../identity/auth/roles.decorator.js";
@@ -33,6 +33,7 @@ export class PagesController {
       parentId: input.parentId,
       isHomePage: input.isHomePage,
       templateId: input.templateId,
+      kind: input.kind,
     });
   }
 
@@ -44,6 +45,7 @@ export class PagesController {
     @Query("status") status?: string,
     @Query("q") query?: string,
     @Query("includeCounts") includeCounts?: string,
+    @Query("kind") queryKind?: string,
   ) {
     const user = getAuthenticatedUser(request);
     const activeTenant = getActiveTenant(request);
@@ -54,6 +56,82 @@ export class PagesController {
       status,
       query,
       includeCounts,
+      kind: queryKind,
+    });
+  }
+
+  @Post("websites/:websiteId/blog-categories")
+  @RequireRole(MembershipRole.EDITOR)
+  createBlogCategory(
+    @Req() request: AuthenticatedRequest,
+    @Param("websiteId") websiteId: string,
+    @Body() body: unknown,
+  ) {
+    const user = getAuthenticatedUser(request);
+    const activeTenant = getActiveTenant(request);
+    const input = body as Record<string, unknown>;
+
+    return this.pages.createBlogCategory({
+      actorUserId: user.id,
+      tenantId: activeTenant.id,
+      websiteId,
+      name: input.name,
+      slug: input.slug,
+    });
+  }
+
+  @Get("websites/:websiteId/blog-categories")
+  @RequireRole(MembershipRole.VIEWER)
+  listBlogCategories(@Req() request: AuthenticatedRequest, @Param("websiteId") websiteId: string) {
+    const user = getAuthenticatedUser(request);
+    const activeTenant = getActiveTenant(request);
+    return this.pages.listBlogCategories({ actorUserId: user.id, tenantId: activeTenant.id, websiteId });
+  }
+
+  @Post("websites/:websiteId/blogs")
+  @RequireRole(MembershipRole.EDITOR)
+  createBlog(
+    @Req() request: AuthenticatedRequest,
+    @Param("websiteId") websiteId: string,
+    @Body() body: unknown,
+  ) {
+    const user = getAuthenticatedUser(request);
+    const activeTenant = getActiveTenant(request);
+    const input = body as Record<string, unknown>;
+
+    return this.pages.createPage({
+      actorUserId: user.id,
+      tenantId: activeTenant.id,
+      websiteId,
+      title: input.title,
+      slug: input.slug,
+      templateId: input.templateId,
+      blogCategoryId: input.blogCategoryId,
+      kind: PageKind.BLOG,
+    });
+  }
+
+  @Get("websites/:websiteId/blogs")
+  @RequireRole(MembershipRole.VIEWER)
+  listBlogs(
+    @Req() request: AuthenticatedRequest,
+    @Param("websiteId") websiteId: string,
+    @Query("status") status?: string,
+    @Query("q") query?: string,
+    @Query("includeCounts") includeCounts?: string,
+    @Query("blogCategoryId") blogCategoryId?: string,
+  ) {
+    const user = getAuthenticatedUser(request);
+    const activeTenant = getActiveTenant(request);
+    return this.pages.listPages({
+      actorUserId: user.id,
+      tenantId: activeTenant.id,
+      websiteId,
+      status,
+      query,
+      includeCounts,
+      blogCategoryId,
+      kind: PageKind.BLOG,
     });
   }
 
@@ -106,6 +184,98 @@ export class PagesController {
       isHomePage: input.isHomePage,
       status: input.status,
       templateId: input.templateId,
+    });
+  }
+
+  @Get("blogs/:pageId")
+  @RequireRole(MembershipRole.VIEWER)
+  getBlog(@Req() request: AuthenticatedRequest, @Param("pageId") pageId: string) {
+    const user = getAuthenticatedUser(request);
+    const activeTenant = getActiveTenant(request);
+    return this.pages.getPage(user.id, activeTenant.id, pageId, PageKind.BLOG);
+  }
+
+  @Patch("blogs/:pageId")
+  @RequireRole(MembershipRole.EDITOR)
+  updateBlog(
+    @Req() request: AuthenticatedRequest,
+    @Param("pageId") pageId: string,
+    @Body() body: unknown,
+  ) {
+    const user = getAuthenticatedUser(request);
+    const activeTenant = getActiveTenant(request);
+    const input = body as Record<string, unknown>;
+
+    return this.pages.updatePage({
+      actorUserId: user.id,
+      tenantId: activeTenant.id,
+      pageId,
+      title: input.title,
+      slug: input.slug,
+      status: input.status,
+      templateId: input.templateId,
+      blogCategoryId: input.blogCategoryId,
+      kind: PageKind.BLOG,
+    });
+  }
+
+  @Get("blogs/:pageId/seo")
+  @RequireRole(MembershipRole.VIEWER)
+  getBlogSeo(@Req() request: AuthenticatedRequest, @Param("pageId") pageId: string) {
+    const user = getAuthenticatedUser(request);
+    const activeTenant = getActiveTenant(request);
+    return this.pages.getSeo(user.id, activeTenant.id, pageId, PageKind.BLOG);
+  }
+
+  @Patch("blogs/:pageId/seo")
+  @RequireRole(MembershipRole.EDITOR)
+  updateBlogSeo(
+    @Req() request: AuthenticatedRequest,
+    @Param("pageId") pageId: string,
+    @Body() body: unknown,
+  ) {
+    const user = getAuthenticatedUser(request);
+    const activeTenant = getActiveTenant(request);
+    const input = body as Record<string, unknown>;
+
+    return this.pages.updateSeo({
+      actorUserId: user.id,
+      tenantId: activeTenant.id,
+      pageId,
+      seo: input.seo,
+      kind: PageKind.BLOG,
+    });
+  }
+
+  @Post("blogs/:pageId/archive")
+  @RequireRole(MembershipRole.EDITOR)
+  archiveBlog(@Req() request: AuthenticatedRequest, @Param("pageId") pageId: string) {
+    const user = getAuthenticatedUser(request);
+    const activeTenant = getActiveTenant(request);
+    return this.pages.archivePage(user.id, activeTenant.id, pageId, PageKind.BLOG);
+  }
+
+  @Post("blogs/:pageId/clone")
+  @RequireRole(MembershipRole.EDITOR)
+  cloneBlog(@Req() request: AuthenticatedRequest, @Param("pageId") pageId: string) {
+    const user = getAuthenticatedUser(request);
+    const activeTenant = getActiveTenant(request);
+    return this.pages.clonePage(user.id, activeTenant.id, pageId, PageKind.BLOG);
+  }
+
+  @Post("blogs/bulk")
+  @RequireRole(MembershipRole.EDITOR)
+  bulkBlogAction(@Req() request: AuthenticatedRequest, @Body() body: unknown) {
+    const user = getAuthenticatedUser(request);
+    const activeTenant = getActiveTenant(request);
+    const input = body as Record<string, unknown>;
+
+    return this.pages.bulkPageAction({
+      actorUserId: user.id,
+      tenantId: activeTenant.id,
+      pageIds: input.pageIds,
+      action: input.action,
+      kind: PageKind.BLOG,
     });
   }
 

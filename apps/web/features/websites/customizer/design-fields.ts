@@ -26,17 +26,22 @@ export const SECTION_DESIGN_FIELDS: ThemeSetting[] = [
   { id: "designMarginTop", type: "range", label: "Margin top", group: "Spacing", min: -80, max: 160, step: 4, unit: "px", default: -80 },
   { id: "designMarginBottom", type: "range", label: "Margin bottom", group: "Spacing", min: -80, max: 160, step: 4, unit: "px", default: -80 },
 
-  { id: "designAllFontFamily", type: "text", label: "Font family", group: "All text", placeholder: "e.g. Inter, sans-serif" },
+  // "options" starts empty and is filled in at render time with the theme's own curated font
+  // list (see CustomizerInspector's sectionDesignFields in inspector.tsx) — this file is
+  // theme-agnostic and has no way to know that list itself. A free-text input let a merchant
+  // type any font stack, but gave no indication of which fonts the theme actually ships
+  // (downloads) versus an arbitrary string that silently renders as a fallback everywhere.
+  { id: "designAllFontFamily", type: "select", label: "Font family", group: "All text", options: [] },
   { id: "designAllFontSize", type: "range", label: "Font size", group: "All text", min: 10, max: 72, step: 1, unit: "px", default: 10 },
   { id: "designAllFontWeight", type: "select", label: "Font weight", group: "All text", options: FONT_WEIGHT_OPTIONS, default: "300" },
   { id: "designAllColor", type: "color", label: "Text color", group: "All text" },
 
-  { id: "designHeadingFontFamily", type: "text", label: "Font family", group: "Heading text", placeholder: "e.g. Sora, sans-serif" },
+  { id: "designHeadingFontFamily", type: "select", label: "Font family", group: "Heading text", options: [] },
   { id: "designHeadingFontSize", type: "range", label: "Font size", group: "Heading text", min: 10, max: 96, step: 1, unit: "px", default: 10 },
   { id: "designHeadingFontWeight", type: "select", label: "Font weight", group: "Heading text", options: FONT_WEIGHT_OPTIONS, default: "300" },
   { id: "designHeadingColor", type: "color", label: "Text color", group: "Heading text" },
 
-  { id: "designParagraphFontFamily", type: "text", label: "Font family", group: "Paragraph text", placeholder: "e.g. Inter, sans-serif" },
+  { id: "designParagraphFontFamily", type: "select", label: "Font family", group: "Paragraph text", options: [] },
   { id: "designParagraphFontSize", type: "range", label: "Font size", group: "Paragraph text", min: 10, max: 48, step: 1, unit: "px", default: 10 },
   { id: "designParagraphFontWeight", type: "select", label: "Font weight", group: "Paragraph text", options: FONT_WEIGHT_OPTIONS, default: "300" },
   { id: "designParagraphColor", type: "color", label: "Text color", group: "Paragraph text" },

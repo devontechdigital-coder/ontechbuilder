@@ -1,7 +1,7 @@
 "use client";
 
 import { Copy, Power, Settings2, Trash2 } from "lucide-react";
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -50,6 +50,16 @@ export function CustomizerInspector({
 }) {
   const allSections = [...groups.header, ...groups.template, ...groups.footer];
 
+  // design-fields.ts is theme-agnostic and can't know a theme's own curated font list, so its
+  // three "Font family" fields start with empty options — filled in here from whichever global
+  // setting already resolved one (see schema-parser.ts's cross-file options resolution), same
+  // list Theme settings' own Heading/Body font pickers show, instead of a bare free-text input.
+  const sectionDesignFields = useMemo(() => {
+    const fontOptions = globalSchema.find((setting) => /font$/i.test(setting.id) && (setting.options?.length ?? 0) > 0)?.options ?? [];
+    if (!fontOptions.length) return SECTION_DESIGN_FIELDS;
+    return SECTION_DESIGN_FIELDS.map((field) => (field.id.endsWith("FontFamily") ? { ...field, options: fontOptions } : field));
+  }, [globalSchema]);
+
   if (selected.kind === "theme") {
     return (
       <div className="grid gap-4 p-3">
@@ -92,7 +102,7 @@ export function CustomizerInspector({
             )}
           </TabsContent>
           <TabsContent value="design">
-            <SettingGroups control={SECTION_DESIGN_FIELDS} values={section.settings} onChange={(id, value) => onChangeSectionSetting(section.id, id, value)} />
+            <SettingGroups control={sectionDesignFields} values={section.settings} onChange={(id, value) => onChangeSectionSetting(section.id, id, value)} />
           </TabsContent>
         </Tabs>
       </div>

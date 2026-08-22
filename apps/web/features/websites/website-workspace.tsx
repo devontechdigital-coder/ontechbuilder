@@ -17,6 +17,7 @@ import { cn } from "../../lib/utils";
 import type { ActiveTenant, SafeUser, TenantSummary } from "../auth/types";
 import { getTemplateDefinitions, isHomeTemplateId, type TemplateDefinition } from "./customizer/state";
 import type {
+  BlogCategorySummary,
   DomainSummary,
   PageListSummary,
   PageResult,
@@ -36,7 +37,7 @@ interface MeResponse {
   activeTenant: ActiveTenant | null;
 }
 
-type WebsiteSection = "pages" | "themes" | "domains" | "settings";
+type WebsiteSection = "pages" | "blogs" | "themes" | "domains" | "settings";
 
 const domainPageSize = 8;
 const pageSizePresets = ["10", "25", "50", "100"];
@@ -71,6 +72,7 @@ export function WebsiteWorkspace({
   const [website, setWebsite] = useState<WebsiteSummary | null>(null);
   const [domains, setDomains] = useState<DomainSummary[]>([]);
   const [pages, setPages] = useState<PageSummary[]>([]);
+  const [blogCategories, setBlogCategories] = useState<BlogCategorySummary[]>([]);
   const [pageCounts, setPageCounts] = useState<PageListSummary["counts"]>({ all: 0, DRAFT: 0, PUBLISHED: 0, ARCHIVED: 0 });
   const [themes, setThemes] = useState<ThemeInstallationSummary[]>([]);
   const [themeCatalog, setThemeCatalog] = useState<ThemeDefinitionSummary[]>([]);
@@ -78,6 +80,7 @@ export function WebsiteWorkspace({
   const [pageQuery, setPageQuery] = useState("");
   const [pageSearchInput, setPageSearchInput] = useState("");
   const [pageStatusFilter, setPageStatusFilter] = useState("all");
+  const [blogCategoryFilter, setBlogCategoryFilter] = useState("all");
   const [selectedPageIds, setSelectedPageIds] = useState<Set<string>>(new Set());
   const [isLoadingPages, setIsLoadingPages] = useState(false);
   const [isBulkUpdatingPages, setIsBulkUpdatingPages] = useState(false);
@@ -106,12 +109,16 @@ export function WebsiteWorkspace({
   const [isHomePage, setIsHomePage] = useState(false);
   const [templateOptions, setTemplateOptions] = useState<TemplateDefinition[]>([]);
   const [pageTemplateId, setPageTemplateId] = useState("");
+  const [pageBlogCategoryId, setPageBlogCategoryId] = useState("");
+  const [newBlogCategoryName, setNewBlogCategoryName] = useState("");
+  const [isCreatingBlogCategory, setIsCreatingBlogCategory] = useState(false);
   const [editingPage, setEditingPage] = useState<PageSummary | null>(null);
   const [editingPageTitle, setEditingPageTitle] = useState("");
   const [editingPageSlug, setEditingPageSlug] = useState("");
   const [editingPageIsHomePage, setEditingPageIsHomePage] = useState(false);
   const [editingPageTemplateId, setEditingPageTemplateId] = useState("");
   const [editingPageStatus, setEditingPageStatus] = useState<PageSummary["status"]>("DRAFT");
+  const [editingPageBlogCategoryId, setEditingPageBlogCategoryId] = useState("");
   const [seoPage, setSeoPage] = useState<PageSummary | null>(null);
   const [themeOpen, setThemeOpen] = useState(false);
   const [historyTheme, setHistoryTheme] = useState<ThemeInstallationSummary | null>(null);
@@ -124,6 +131,7 @@ export function WebsiteWorkspace({
   const visiblePages = pages.slice(pageIndex * pagesPerPage, pageIndex * pagesPerPage + pagesPerPage);
   const pageCount = Math.max(1, Math.ceil(pages.length / pagesPerPage));
   const selectedPages = useMemo(() => pages.filter((page) => selectedPageIds.has(page.id)), [pages, selectedPageIds]);
+  const blogCategoryById = useMemo(() => new Map(blogCategories.map((category) => [category.id, category])), [blogCategories]);
   const visibleSelectablePageIds = visiblePages.map((page) => page.id);
   const allVisiblePagesSelected = Boolean(visibleSelectablePageIds.length) && visibleSelectablePageIds.every((pageId) => selectedPageIds.has(pageId));
   const pageFilterTabs = [
@@ -137,6 +145,31 @@ export function WebsiteWorkspace({
     pageSearchInput.trim() !== pageQuery ||
     pageSizeInputChoice !== pageSizeChoice ||
     pendingPagesPerPage !== pagesPerPage;
+  const isPageListSection = section === "pages" || section === "blogs";
+  const contentKind = section === "blogs" ? "BLOG" : "PAGE";
+  const listEndpoint = section === "blogs" ? `/websites/${id}/blogs` : `/websites/${id}/pages`;
+  const itemEndpointBase = section === "blogs" ? "blogs" : "pages";
+  const contentLabels = section === "blogs"
+    ? {
+        pluralTitle: "Blogs",
+        singularTitle: "blog post",
+        singularTitleCase: "Blog post",
+        createLabel: "Create blog",
+        emptyTitle: "No blog posts found",
+        emptyDescription: "Create a blog post or adjust the filter.",
+        sectionDescription: "Search, filter, and open builder-ready blog posts for this website.",
+        slugHint: "Lowercase URL path for this blog post.",
+      }
+    : {
+        pluralTitle: "Pages",
+        singularTitle: "page",
+        singularTitleCase: "Page",
+        createLabel: "Create page",
+        emptyTitle: "No pages found",
+        emptyDescription: "Create a homepage or adjust the filter.",
+        sectionDescription: "Search, filter, and open builder-ready pages for this website.",
+        slugHint: "Lowercase URL path for this page.",
+      };
 
   async function loadPages(status = pageStatusFilter, query = pageQuery) {
     const searchParams = new URLSearchParams({ includeCounts: "true" });
@@ -147,10 +180,13 @@ export function WebsiteWorkspace({
     if (normalizedQuery) {
       searchParams.set("q", normalizedQuery);
     }
+    if (section === "blogs" && blogCategoryFilter !== "all") {
+      searchParams.set("blogCategoryId", blogCategoryFilter);
+    }
 
     setIsLoadingPages(true);
     try {
-      const pagesResponse = await apiRequest<PageListSummary>(`/websites/${id}/pages?${searchParams.toString()}`);
+      const pagesResponse = await apiRequest<PageListSummary>(`${listEndpoint}?${searchParams.toString()}`);
       setPages(pagesResponse.data);
       setPageCounts(pagesResponse.counts);
     } finally {
@@ -166,13 +202,16 @@ export function WebsiteWorkspace({
     if (pageQuery.trim()) {
       pageSearchParams.set("q", pageQuery.trim());
     }
+    if (section === "blogs" && blogCategoryFilter !== "all") {
+      pageSearchParams.set("blogCategoryId", blogCategoryFilter);
+    }
 
     const [websiteResponse, domainResponse, pagesResponse, themesResponse, catalogResponse] = await Promise.all([
       apiRequest<WebsiteSummary>(`/tenants/${activeTenant.id}/websites/${id}`),
       apiRequest<PageResult<DomainSummary>>(
         `/tenants/${activeTenant.id}/websites/${id}/domains?limit=${domainPageSize}${domainCursor ? `&cursor=${encodeURIComponent(domainCursor)}` : ""}`,
       ),
-      apiRequest<PageListSummary>(`/websites/${id}/pages?${pageSearchParams.toString()}`),
+      apiRequest<PageListSummary>(`${listEndpoint}?${pageSearchParams.toString()}`),
       apiRequest<ThemeInstallationSummary[]>(`/tenants/${activeTenant.id}/websites/${id}/themes`),
       apiRequest<ThemeDefinitionSummary[]>(`/tenants/${activeTenant.id}/websites/${id}/themes/catalog`),
     ]);
@@ -185,8 +224,13 @@ export function WebsiteWorkspace({
     setPageCounts(pagesResponse.counts);
     setThemes(themesResponse);
     setThemeCatalog(catalogResponse);
+    if (section === "blogs") {
+      setBlogCategories(await apiRequest<BlogCategorySummary[]>(`/websites/${id}/blog-categories`));
+    } else {
+      setBlogCategories([]);
+    }
 
-    if (section === "pages") {
+    if (isPageListSection) {
       const currentThemeId = themesResponse.find((theme) => theme.status === "PUBLISHED")?.id ?? themesResponse[0]?.id ?? null;
       if (currentThemeId) {
         const draftResponse = await apiRequest<ThemeDraftSummary>(
@@ -231,7 +275,7 @@ export function WebsiteWorkspace({
   useEffect(() => {
     setPageIndex(0);
     setSelectedPageIds(new Set());
-  }, [pageQuery, pageStatusFilter, pageSizeChoice, customPageSize]);
+  }, [blogCategoryFilter, pageQuery, pageStatusFilter, pageSizeChoice, customPageSize]);
 
   useEffect(() => {
     if (pageStatusFilter !== "all" && pageCounts[pageStatusFilter as keyof Omit<PageListSummary["counts"], "all">] === 0) {
@@ -240,12 +284,12 @@ export function WebsiteWorkspace({
   }, [pageCounts, pageStatusFilter]);
 
   useEffect(() => {
-    if (!me?.activeTenant || section !== "pages") {
+    if (!me?.activeTenant || !isPageListSection) {
       return;
     }
 
     void loadPages();
-  }, [me?.activeTenant, pageQuery, pageStatusFilter, section]);
+  }, [blogCategoryFilter, me?.activeTenant, pageQuery, pageStatusFilter, section]);
 
   useEffect(() => {
     if (!pageSlugTouched) {
@@ -403,19 +447,27 @@ export function WebsiteWorkspace({
     setError(null);
 
     try {
-      await apiRequest<PageSummary>(`/websites/${id}/pages`, {
+      await apiRequest<PageSummary>(listEndpoint, {
         method: "POST",
-        body: JSON.stringify({ title: pageTitle, slug: pageSlug, isHomePage, templateId: pageTemplateId || null }),
+        body: JSON.stringify({
+          title: pageTitle,
+          slug: pageSlug,
+          isHomePage: section === "pages" ? isHomePage : false,
+          templateId: pageTemplateId || null,
+          blogCategoryId: section === "blogs" ? pageBlogCategoryId || null : undefined,
+          kind: contentKind,
+        }),
       });
       setPageTitle("");
       setPageSlug("");
       setPageSlugTouched(false);
       setIsHomePage(false);
       setPageTemplateId(defaultTemplateId(false));
+      setPageBlogCategoryId("");
       setCreatePageOpen(false);
       await refresh();
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Page creation failed");
+      setError(requestError instanceof Error ? requestError.message : `${contentLabels.singularTitleCase} creation failed`);
     }
   }
 
@@ -427,6 +479,7 @@ export function WebsiteWorkspace({
     setEditingPageIsHomePage(pageIsHomePage);
     setEditingPageTemplateId(page.templateId ?? defaultTemplateId(pageIsHomePage));
     setEditingPageStatus(page.status);
+    setEditingPageBlogCategoryId(page.blogCategoryId ?? "");
   }
 
   async function savePage(event: FormEvent<HTMLFormElement>) {
@@ -438,37 +491,38 @@ export function WebsiteWorkspace({
     }
 
     try {
-      await apiRequest<PageSummary>(`/pages/${editingPage.id}`, {
+      await apiRequest<PageSummary>(`/${itemEndpointBase}/${editingPage.id}`, {
         method: "PATCH",
         body: JSON.stringify({
           title: editingPageTitle,
           slug: editingPageSlug,
-          isHomePage: editingPageIsHomePage,
+          isHomePage: section === "pages" ? editingPageIsHomePage : false,
           templateId: editingPageTemplateId || null,
+          blogCategoryId: section === "blogs" ? editingPageBlogCategoryId || null : undefined,
           status: editingPageStatus,
         }),
       });
       setEditingPage(null);
-      toast.success("Page updated");
+      toast.success(`${contentLabels.singularTitleCase} updated`);
       await refresh();
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Page update failed");
+      setError(requestError instanceof Error ? requestError.message : `${contentLabels.singularTitleCase} update failed`);
     }
   }
 
   async function archivePage(page: PageSummary) {
-    await apiRequest(`/pages/${page.id}/archive`, { method: "POST" });
+    await apiRequest(`/${itemEndpointBase}/${page.id}/archive`, { method: "POST" });
     await refresh();
   }
 
   async function clonePage(page: PageSummary) {
     const toastId = toast.loading(`Cloning ${page.title}...`, { position: "top-right" });
     try {
-      await apiRequest<PageSummary>(`/pages/${page.id}/clone`, { method: "POST" });
+      await apiRequest<PageSummary>(`/${itemEndpointBase}/${page.id}/clone`, { method: "POST" });
       toast.success(`${page.title} cloned successfully`, { id: toastId, position: "top-right" });
       await refresh();
     } catch (requestError) {
-      toast.error(requestError instanceof Error ? requestError.message : "Page clone failed", { id: toastId, position: "top-right" });
+      toast.error(requestError instanceof Error ? requestError.message : `${contentLabels.singularTitleCase} clone failed`, { id: toastId, position: "top-right" });
     }
   }
 
@@ -486,6 +540,7 @@ export function WebsiteWorkspace({
     setPageSizeChoice(String(defaultPagesPerPage));
     setCustomPageSizeInput(defaultPagesPerPage);
     setCustomPageSize(defaultPagesPerPage);
+    setBlogCategoryFilter("all");
     setSelectedPageIds(new Set());
   }
 
@@ -522,7 +577,7 @@ export function WebsiteWorkspace({
 
     setIsBulkUpdatingPages(true);
     try {
-      const response = await apiRequest<{ count: number }>("/pages/bulk", {
+      const response = await apiRequest<{ count: number }>(`/${itemEndpointBase}/bulk`, {
         method: "POST",
         body: JSON.stringify({ pageIds: Array.from(selectedPageIds), action }),
       });
@@ -534,6 +589,31 @@ export function WebsiteWorkspace({
       toast.error(requestError instanceof Error ? requestError.message : "Bulk page action failed");
     } finally {
       setIsBulkUpdatingPages(false);
+    }
+  }
+
+  async function createBlogCategory() {
+    const name = newBlogCategoryName.trim();
+    if (!name) {
+      toast.error("Category name is required");
+      return;
+    }
+
+    setIsCreatingBlogCategory(true);
+    try {
+      const category = await apiRequest<BlogCategorySummary>(`/websites/${id}/blog-categories`, {
+        method: "POST",
+        body: JSON.stringify({ name }),
+      });
+      setBlogCategories((current) => [...current, category].sort((first, second) => first.name.localeCompare(second.name)));
+      setPageBlogCategoryId(category.id);
+      setEditingPageBlogCategoryId(category.id);
+      setNewBlogCategoryName("");
+      toast.success("Blog category created");
+    } catch (requestError) {
+      toast.error(requestError instanceof Error ? requestError.message : "Blog category creation failed");
+    } finally {
+      setIsCreatingBlogCategory(false);
     }
   }
 
@@ -706,12 +786,12 @@ export function WebsiteWorkspace({
     >
       {error ? <Alert>{error}</Alert> : null}
 
-      {section === "pages" ? (
+      {isPageListSection ? (
         <>
           <Card>
             <SectionHeader
-              title="Pages"
-              description="Search, filter, and open builder-ready pages for this website."
+              title={contentLabels.pluralTitle}
+              description={contentLabels.sectionDescription}
               actions={
                 <div className="flex flex-wrap gap-2">
                    <Button
@@ -722,14 +802,14 @@ export function WebsiteWorkspace({
                     }}
                   >
                     <Plus className="size-4" />
-                    Create page
+                    {contentLabels.createLabel}
                   </Button>
                 </div>
               }
             />
             <Tabs tabs={pageFilterTabs} value={pageStatusFilter} onChange={setPageStatusFilter} />
             <form
-              className="grid gap-3 rounded-lg border bg-surface-secondary/40 p-3 lg:grid-cols-[minmax(240px,1fr)_minmax(150px,auto)_auto_auto]"
+              className="grid gap-3 rounded-lg border bg-surface-secondary/40 p-3 lg:grid-cols-[minmax(240px,1fr)_minmax(150px,auto)_minmax(150px,auto)_auto_auto]"
               onSubmit={(event) => {
                 event.preventDefault();
                 applyPageControls();
@@ -747,7 +827,7 @@ export function WebsiteWorkspace({
               </div>
               <div className="flex items-center gap-2">
                 <Select
-                  aria-label="Pages per page"
+                  aria-label={`${contentLabels.pluralTitle} per page`}
                   value={pageSizeInputChoice}
                   onChange={(event) => {
                     const nextValue = event.target.value;
@@ -764,7 +844,7 @@ export function WebsiteWorkspace({
                 </Select>
                 {pageSizeInputChoice === "custom" ? (
                   <Input
-                    aria-label="Custom pages per page"
+                    aria-label={`Custom ${contentLabels.pluralTitle.toLowerCase()} per page`}
                     className="w-20"
                     type="number"
                     min={1}
@@ -774,6 +854,20 @@ export function WebsiteWorkspace({
                   />
                 ) : null}
               </div>
+              {section === "blogs" ? (
+                <Select
+                  aria-label="Blog category filter"
+                  value={blogCategoryFilter}
+                  onChange={(event) => setBlogCategoryFilter(event.target.value)}
+                >
+                  <option value="all">All categories</option>
+                  {blogCategories.map((category) => (
+                    <option key={category.id} value={category.id}>{category.name}</option>
+                  ))}
+                </Select>
+              ) : (
+                <span className="hidden lg:block" aria-hidden="true" />
+              )}
               <Button type="submit" disabled={!hasPendingPageControls || isLoadingPages}>
                 <SearchCheck className="size-4" />
                 Apply
@@ -810,7 +904,7 @@ export function WebsiteWorkspace({
                         size="sm"
                         variant="secondary"
                         disabled={isBulkUpdatingPages}
-                        onClick={() => setConfirm({ title: "Archive pages", description: `Archive ${selectedPages.length} selected page${selectedPages.length === 1 ? "" : "s"}?`, action: () => void bulkPageAction("ARCHIVE") })}
+                        onClick={() => setConfirm({ title: `Archive ${contentLabels.pluralTitle.toLowerCase()}`, description: `Archive ${selectedPages.length} selected ${contentLabels.singularTitle}${selectedPages.length === 1 ? "" : "s"}?`, action: () => void bulkPageAction("ARCHIVE") })}
                       >
                         <Archive className="size-4" />
                         Archive
@@ -820,7 +914,7 @@ export function WebsiteWorkspace({
                         size="sm"
                         variant="danger"
                         disabled={isBulkUpdatingPages}
-                        onClick={() => setConfirm({ title: "Permanently delete pages", description: `Permanently delete ${selectedPages.length} selected page${selectedPages.length === 1 ? "" : "s"}? This cannot be undone.`, action: () => void bulkPageAction("DELETE") })}
+                        onClick={() => setConfirm({ title: `Permanently delete ${contentLabels.pluralTitle.toLowerCase()}`, description: `Permanently delete ${selectedPages.length} selected ${contentLabels.singularTitle}${selectedPages.length === 1 ? "" : "s"}? This cannot be undone.`, action: () => void bulkPageAction("DELETE") })}
                       >
                         <Trash2 className="size-4" />
                         Delete
@@ -832,14 +926,15 @@ export function WebsiteWorkspace({
                   headers={[
                     <input
                       key="select"
-                      aria-label="Select visible pages"
+                      aria-label={`Select visible ${contentLabels.pluralTitle.toLowerCase()}`}
                       className="size-4 rounded border-input text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       type="checkbox"
                       checked={allVisiblePagesSelected}
                       onChange={(event) => toggleVisiblePageSelection(event.target.checked)}
                     />,
-                    "Page",
+                    contentLabels.singularTitleCase,
                     "Slug",
+                    ...(section === "blogs" ? ["Category"] : []),
                     "Status",
                     "Updated",
                     "Actions",
@@ -858,6 +953,9 @@ export function WebsiteWorkspace({
                       </td>
                       <td className="font-semibold text-foreground">{page.title}</td>
                       <td className="text-muted-foreground">/{page.slug}</td>
+                      {section === "blogs" ? (
+                        <td className="text-muted-foreground">{page.blogCategoryId ? blogCategoryById.get(page.blogCategoryId)?.name ?? "Unknown" : "Uncategorized"}</td>
+                      ) : null}
                       <td><StatusBadge status={page.status} /></td>
                       <td className="text-muted-foreground">{new Date(page.updatedAt).toLocaleDateString()}</td>
                       <td>
@@ -884,7 +982,7 @@ export function WebsiteWorkspace({
                             label={`Archive ${page.title}`}
                             disabled={page.status === "ARCHIVED"}
                             className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                            onClick={() => setConfirm({ title: "Archive page", description: `Archive ${page.title}?`, action: () => void archivePage(page) })}
+                            onClick={() => setConfirm({ title: `Archive ${contentLabels.singularTitle}`, description: `Archive ${page.title}?`, action: () => void archivePage(page) })}
                           >
                             <Archive className="size-4" />
                           </IconButton>
@@ -902,10 +1000,10 @@ export function WebsiteWorkspace({
                 />
               </>
             ) : (
-              <EmptyState title="No pages found" description="Create a homepage or adjust the filter." />
+              <EmptyState title={contentLabels.emptyTitle} description={contentLabels.emptyDescription} />
             )}
           </Card>
-          <Sheet open={createPageOpen} title="Create page" onClose={() => setCreatePageOpen(false)}>
+          <Sheet open={createPageOpen} title={contentLabels.createLabel} onClose={() => setCreatePageOpen(false)}>
             <form className="grid gap-4" onSubmit={createPage}>
               <Field label="Title">
                 <Input
@@ -914,7 +1012,7 @@ export function WebsiteWorkspace({
                   required
                 />
               </Field>
-              <Field label="Slug" hint="Lowercase URL path for this page.">
+              <Field label="Slug" hint={contentLabels.slugHint}>
                 <Input
                   value={pageSlug}
                   onChange={(event) => {
@@ -925,7 +1023,7 @@ export function WebsiteWorkspace({
                 />
               </Field>
               {templateOptions.length ? (
-                <Field label="Template" hint="Controls which theme layout this page opens with in the builder.">
+                <Field label="Template" hint={`Controls which theme layout this ${contentLabels.singularTitle} opens with in the builder.`}>
                   <Select value={pageTemplateId} onChange={(event) => setPageTemplateId(event.target.value)}>
                     {templateOptions.map((template) => (
                       <option key={template.id} value={template.id}>{template.name}</option>
@@ -933,22 +1031,35 @@ export function WebsiteWorkspace({
                   </Select>
                 </Field>
               ) : null}
-              <Checkbox
-                label="Set as homepage"
-                checked={isHomePage}
-                onChange={(event) => {
-                  const checked = event.target.checked;
-                  setIsHomePage(checked);
-                  setPageTemplateId(defaultTemplateId(checked));
-                }}
-              />
+              {section === "blogs" ? (
+                <BlogCategoryFields
+                  categories={blogCategories}
+                  value={pageBlogCategoryId}
+                  newCategoryName={newBlogCategoryName}
+                  creating={isCreatingBlogCategory}
+                  onChange={setPageBlogCategoryId}
+                  onNewCategoryNameChange={setNewBlogCategoryName}
+                  onCreateCategory={() => void createBlogCategory()}
+                />
+              ) : null}
+              {section === "pages" ? (
+                <Checkbox
+                  label="Set as homepage"
+                  checked={isHomePage}
+                  onChange={(event) => {
+                    const checked = event.target.checked;
+                    setIsHomePage(checked);
+                    setPageTemplateId(defaultTemplateId(checked));
+                  }}
+                />
+              ) : null}
               <div className="flex justify-end gap-2">
                 <Button type="button" variant="secondary" onClick={() => setCreatePageOpen(false)}>Cancel</Button>
-                <Button type="submit"><Plus className="size-4" />Create page</Button>
+                <Button type="submit"><Plus className="size-4" />{contentLabels.createLabel}</Button>
               </div>
             </form>
           </Sheet>
-          <Sheet open={Boolean(editingPage)} title="Edit page" onClose={() => setEditingPage(null)}>
+          <Sheet open={Boolean(editingPage)} title={`Edit ${contentLabels.singularTitle}`} onClose={() => setEditingPage(null)}>
             <form className="grid gap-4" onSubmit={savePage}>
               <Field label="Title">
                 <Input
@@ -957,14 +1068,14 @@ export function WebsiteWorkspace({
                   required
                 />
               </Field>
-              <Field label="Slug" hint="Lowercase URL path for this page.">
+              <Field label="Slug" hint={contentLabels.slugHint}>
                 <Input
                   value={editingPageSlug}
                   onChange={(event) => setEditingPageSlug(slugify(event.target.value))}
                   required
                 />
               </Field>
-              <Field label="Status" hint="Publish a draft version to make page content live.">
+              <Field label="Status" hint={`Publish a draft version to make ${contentLabels.singularTitle} content live.`}>
                 <Select
                   value={editingPageStatus}
                   onChange={(event) => setEditingPageStatus(event.target.value as PageSummary["status"])}
@@ -974,7 +1085,7 @@ export function WebsiteWorkspace({
                 </Select>
               </Field>
               {templateOptions.length ? (
-                <Field label="Template" hint="Controls which theme layout this page opens with in the builder.">
+                <Field label="Template" hint={`Controls which theme layout this ${contentLabels.singularTitle} opens with in the builder.`}>
                   <Select value={editingPageTemplateId} onChange={(event) => setEditingPageTemplateId(event.target.value)}>
                     {templateOptions.map((template) => (
                       <option key={template.id} value={template.id}>{template.name}</option>
@@ -982,18 +1093,31 @@ export function WebsiteWorkspace({
                   </Select>
                 </Field>
               ) : null}
-              <Checkbox
-                label="Set as homepage"
-                checked={editingPageIsHomePage}
-                onChange={(event) => {
-                  const checked = event.target.checked;
-                  setEditingPageIsHomePage(checked);
-                  setEditingPageTemplateId(defaultTemplateId(checked));
-                }}
-              />
+              {section === "blogs" ? (
+                <BlogCategoryFields
+                  categories={blogCategories}
+                  value={editingPageBlogCategoryId}
+                  newCategoryName={newBlogCategoryName}
+                  creating={isCreatingBlogCategory}
+                  onChange={setEditingPageBlogCategoryId}
+                  onNewCategoryNameChange={setNewBlogCategoryName}
+                  onCreateCategory={() => void createBlogCategory()}
+                />
+              ) : null}
+              {section === "pages" ? (
+                <Checkbox
+                  label="Set as homepage"
+                  checked={editingPageIsHomePage}
+                  onChange={(event) => {
+                    const checked = event.target.checked;
+                    setEditingPageIsHomePage(checked);
+                    setEditingPageTemplateId(defaultTemplateId(checked));
+                  }}
+                />
+              ) : null}
               <div className="flex justify-end gap-2">
                 <Button type="button" variant="secondary" onClick={() => setEditingPage(null)}>Cancel</Button>
-                <Button type="submit"><CheckCircle2 className="size-4" />Save page</Button>
+                <Button type="submit"><CheckCircle2 className="size-4" />Save {contentLabels.singularTitle}</Button>
               </div>
             </form>
           </Sheet>
@@ -1002,6 +1126,7 @@ export function WebsiteWorkspace({
             website={website}
             open={Boolean(seoPage)}
             onClose={() => setSeoPage(null)}
+            endpointBase={itemEndpointBase}
           />
           {me.activeTenant ? (
             <WebsiteThemeSettingsModal
@@ -1542,6 +1667,48 @@ export function WebsiteWorkspace({
 function StatusBadge({ status }: { status: WebsiteSummary["status"] | PageSummary["status"] }) {
   const tone = status === "PUBLISHED" ? "success" : status === "ARCHIVED" ? "danger" : "warning";
   return <Badge tone={tone}>{status.toLowerCase()}</Badge>;
+}
+
+function BlogCategoryFields({
+  categories,
+  value,
+  newCategoryName,
+  creating,
+  onChange,
+  onNewCategoryNameChange,
+  onCreateCategory,
+}: {
+  categories: BlogCategorySummary[];
+  value: string;
+  newCategoryName: string;
+  creating: boolean;
+  onChange: (value: string) => void;
+  onNewCategoryNameChange: (value: string) => void;
+  onCreateCategory: () => void;
+}) {
+  return (
+    <div className="grid gap-3 rounded-lg border bg-surface-secondary/35 p-3">
+      <Field label="Category">
+        <Select value={value} onChange={(event) => onChange(event.target.value)}>
+          <option value="">Uncategorized</option>
+          {categories.map((category) => (
+            <option key={category.id} value={category.id}>{category.name}</option>
+          ))}
+        </Select>
+      </Field>
+      <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+        <Field label="New category">
+          <Input value={newCategoryName} onChange={(event) => onNewCategoryNameChange(event.target.value)} placeholder="News" />
+        </Field>
+        <div className="flex items-end">
+          <Button type="button" variant="secondary" disabled={creating || !newCategoryName.trim()} onClick={onCreateCategory}>
+            <Plus className="size-4" />
+            Add
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function PagesTableSkeleton() {

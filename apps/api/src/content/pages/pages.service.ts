@@ -8,6 +8,7 @@ import {
 } from "@nestjs/common";
 import {
   MembershipRole,
+  PageKind,
   PageStatus,
   PageVersionStatus,
   Prisma,
@@ -28,6 +29,8 @@ interface CreatePageInput extends ActorInput {
   parentId?: unknown;
   isHomePage?: unknown;
   templateId?: unknown;
+  kind?: unknown;
+  blogCategoryId?: unknown;
 }
 
 interface UpdatePageInput extends ActorInput {
@@ -38,11 +41,14 @@ interface UpdatePageInput extends ActorInput {
   isHomePage?: unknown;
   status?: unknown;
   templateId?: unknown;
+  blogCategoryId?: unknown;
+  kind?: unknown;
 }
 
 interface UpdateSeoInput extends ActorInput {
   pageId: string;
   seo: unknown;
+  kind?: unknown;
 }
 
 interface CreateVersionInput extends ActorInput {
@@ -66,11 +72,20 @@ interface ListPagesInput extends ActorInput {
   status?: unknown;
   query?: unknown;
   includeCounts?: unknown;
+  kind?: unknown;
+  blogCategoryId?: unknown;
+}
+
+interface CreateBlogCategoryInput extends ActorInput {
+  websiteId: string;
+  name: unknown;
+  slug?: unknown;
 }
 
 interface BulkPageActionInput extends ActorInput {
   pageIds: unknown;
   action: unknown;
+  kind?: unknown;
 }
 
 interface VersionListInput extends ActorInput {
@@ -123,9 +138,14 @@ export class PagesService {
     const parentId = optionalString(input.parentId, "parentId");
     const templateId = optionalString(input.templateId, "templateId");
     const isHomePage = parseOptionalBoolean(input.isHomePage, "isHomePage");
+    const kind = parseOptionalPageKind(input.kind);
+    const blogCategoryId = optionalString(input.blogCategoryId, "blogCategoryId");
 
     if (parentId) {
       await this.assertParentBelongsToWebsite(input.tenantId, input.websiteId, parentId);
+    }
+    if (blogCategoryId) {
+      await this.assertBlogCategoryBelongsToWebsite(input.tenantId, input.websiteId, blogCategoryId);
     }
 
     try {
@@ -138,6 +158,8 @@ export class PagesService {
             title,
             slug,
             ...(templateId ? { templateId } : {}),
+            kind,
+            ...(blogCategoryId ? { blogCategoryId } : {}),
             status: PageStatus.DRAFT,
           },
           select: pageSelect,
@@ -166,9 +188,13 @@ export class PagesService {
     await this.access.assertWebsiteAccess(input.actorUserId, input.tenantId, input.websiteId);
     const status = parseOptionalPageStatusFilter(input.status);
     const query = optionalString(input.query, "q")?.trim();
+    const kind = parseOptionalPageKind(input.kind);
+    const blogCategoryId = optionalString(input.blogCategoryId, "blogCategoryId");
     const baseWhere: Prisma.PageWhereInput = {
       tenantId: input.tenantId,
       websiteId: input.websiteId,
+      kind,
+      ...(blogCategoryId ? { blogCategoryId } : {}),
       ...(query
         ? {
             OR: [
@@ -203,6 +229,8 @@ export class PagesService {
       where: {
         tenantId: input.tenantId,
         websiteId: input.websiteId,
+        kind,
+        ...(blogCategoryId ? { blogCategoryId } : {}),
       },
       _count: {
         _all: true,
@@ -225,13 +253,14 @@ export class PagesService {
     };
   }
 
-  async getPage(actorUserId: string, tenantId: string, pageId: string) {
+  async getPage(actorUserId: string, tenantId: string, pageId: string, kind?: PageKind) {
     await this.access.assertTenantMember(actorUserId, tenantId);
 
     const page = await this.prisma.page.findFirst({
       where: {
         id: pageId,
         tenantId,
+        ...(kind ? { kind } : {}),
       },
       select: pageDetailSelect,
     });
@@ -244,7 +273,7 @@ export class PagesService {
   }
 
   async updatePage(input: UpdatePageInput) {
-    const page = await this.assertPageAccess(input.actorUserId, input.tenantId, input.pageId);
+    const page = await this.assertPageAccess(input.actorUserId, input.tenantId, input.pageId, parseOptionalExpectedPageKind(input.kind));
     const data: Prisma.PageUpdateInput = {};
     const isHomePage = parseOptionalBoolean(input.isHomePage, "isHomePage");
 
@@ -268,6 +297,14 @@ export class PagesService {
 
     if (input.templateId !== undefined) {
       data.templateId = optionalString(input.templateId, "templateId") ?? null;
+    }
+
+    if (input.blogCategoryId !== undefined) {
+      const blogCategoryId = optionalString(input.blogCategoryId, "blogCategoryId");
+      if (blogCategoryId) {
+        await this.assertBlogCategoryBelongsToWebsite(input.tenantId, page.websiteId, blogCategoryId);
+      }
+      data.blogCategory = blogCategoryId ? { connect: { id: blogCategoryId } } : { disconnect: true };
     }
 
     if (!Object.keys(data).length && isHomePage === undefined) {
@@ -322,13 +359,14 @@ export class PagesService {
     }
   }
 
-  async getSeo(actorUserId: string, tenantId: string, pageId: string) {
+  async getSeo(actorUserId: string, tenantId: string, pageId: string, kind?: PageKind) {
     await this.access.assertTenantMember(actorUserId, tenantId);
 
     const page = await this.prisma.page.findFirst({
       where: {
         id: pageId,
         tenantId,
+        ...(kind ? { kind } : {}),
       },
       select: {
         seo: true,
@@ -343,7 +381,7 @@ export class PagesService {
   }
 
   async updateSeo(input: UpdateSeoInput) {
-    await this.assertPageAccess(input.actorUserId, input.tenantId, input.pageId);
+    await this.assertPageAccess(input.actorUserId, input.tenantId, input.pageId, parseOptionalExpectedPageKind(input.kind));
     const seo = parseSeoSettings(input.seo);
 
     const page = await this.prisma.page.update({
@@ -362,8 +400,8 @@ export class PagesService {
     return normalizeSeoSettings(page.seo);
   }
 
-  async archivePage(actorUserId: string, tenantId: string, pageId: string) {
-    const page = await this.assertPageAccess(actorUserId, tenantId, pageId);
+  async archivePage(actorUserId: string, tenantId: string, pageId: string, kind?: PageKind) {
+    const page = await this.assertPageAccess(actorUserId, tenantId, pageId, kind);
 
     return this.prisma.$transaction(async (tx) => {
       await tx.website.updateMany({
@@ -393,13 +431,14 @@ export class PagesService {
     });
   }
 
-  async clonePage(actorUserId: string, tenantId: string, pageId: string) {
+  async clonePage(actorUserId: string, tenantId: string, pageId: string, kind?: PageKind) {
     await this.access.assertTenantMember(actorUserId, tenantId);
 
     const source = await this.prisma.page.findFirst({
       where: {
         id: pageId,
         tenantId,
+        ...(kind ? { kind } : {}),
       },
       select: {
         id: true,
@@ -408,6 +447,8 @@ export class PagesService {
         title: true,
         slug: true,
         templateId: true,
+        kind: true,
+        blogCategoryId: true,
         seo: true,
         draftVersion: {
           select: {
@@ -438,6 +479,8 @@ export class PagesService {
           title: `${source.title} copy`,
           slug,
           ...(source.templateId ? { templateId: source.templateId } : {}),
+          kind: source.kind,
+          ...(source.blogCategoryId ? { blogCategoryId: source.blogCategoryId } : {}),
           seo: source.seo as Prisma.InputJsonValue,
           status: PageStatus.DRAFT,
         },
@@ -478,9 +521,10 @@ export class PagesService {
     await this.access.assertTenantMember(input.actorUserId, input.tenantId);
     const pageIds = parsePageIds(input.pageIds);
     const action = parseBulkPageAction(input.action);
+    const kind = parseOptionalExpectedPageKind(input.kind);
 
     if (action === "DELETE") {
-      return this.deletePages(input.actorUserId, input.tenantId, pageIds);
+      return this.deletePages(input.actorUserId, input.tenantId, pageIds, kind);
     }
 
     const status = action === "PUBLISH" ? PageStatus.PUBLISHED : action === "DRAFT" ? PageStatus.DRAFT : PageStatus.ARCHIVED;
@@ -491,6 +535,7 @@ export class PagesService {
             in: pageIds,
           },
           tenantId: input.tenantId,
+          ...(kind ? { kind } : {}),
         },
         select: {
           id: true,
@@ -521,6 +566,7 @@ export class PagesService {
             in: pageIds,
           },
           tenantId: input.tenantId,
+          ...(kind ? { kind } : {}),
         },
         data: {
           status,
@@ -531,7 +577,7 @@ export class PagesService {
     });
   }
 
-  async deletePages(actorUserId: string, tenantId: string, pageIds: string[]) {
+  async deletePages(actorUserId: string, tenantId: string, pageIds: string[], kind?: PageKind) {
     await this.access.assertTenantMember(actorUserId, tenantId);
     const ids = parsePageIds(pageIds);
 
@@ -542,6 +588,7 @@ export class PagesService {
             in: ids,
           },
           tenantId,
+          ...(kind ? { kind } : {}),
         },
         select: {
           id: true,
@@ -580,6 +627,7 @@ export class PagesService {
             in: ids,
           },
           tenantId,
+          ...(kind ? { kind } : {}),
         },
         data: {
           draftVersionId: null,
@@ -592,6 +640,7 @@ export class PagesService {
             in: ids,
           },
           tenantId,
+          ...(kind ? { kind } : {}),
         },
       });
 
@@ -616,6 +665,7 @@ export class PagesService {
       where: {
         tenantId: input.tenantId,
         websiteId: input.websiteId,
+        kind: PageKind.PAGE,
         status: {
           not: PageStatus.ARCHIVED,
         },
@@ -630,6 +680,42 @@ export class PagesService {
     }
 
     return buildTree(pages, website.homePageId);
+  }
+
+  async listBlogCategories(input: ActorInput & { websiteId: string }) {
+    await this.access.assertWebsiteAccess(input.actorUserId, input.tenantId, input.websiteId);
+
+    return this.prisma.blogCategory.findMany({
+      where: {
+        tenantId: input.tenantId,
+        websiteId: input.websiteId,
+      },
+      orderBy: {
+        name: "asc",
+      },
+      select: blogCategorySelect,
+    });
+  }
+
+  async createBlogCategory(input: CreateBlogCategoryInput) {
+    await this.access.assertWebsiteAccess(input.actorUserId, input.tenantId, input.websiteId);
+
+    const name = requiredString(input.name, "name");
+    const slug = input.slug === undefined || input.slug === null || input.slug === "" ? slugify(name) : requiredSlug(input.slug);
+
+    try {
+      return await this.prisma.blogCategory.create({
+        data: {
+          tenantId: input.tenantId,
+          websiteId: input.websiteId,
+          name,
+          slug,
+        },
+        select: blogCategorySelect,
+      });
+    } catch (error) {
+      throw mapUniqueError(error, "Blog category slug already exists for this website");
+    }
   }
 
   async createVersion(input: CreateVersionInput) {
@@ -866,19 +952,21 @@ export class PagesService {
     return page;
   }
 
-  private async assertPageAccess(actorUserId: string, tenantId: string, pageId: string) {
+  private async assertPageAccess(actorUserId: string, tenantId: string, pageId: string, kind?: PageKind) {
     await this.access.assertTenantMember(actorUserId, tenantId);
 
     const page = await this.prisma.page.findFirst({
       where: {
         id: pageId,
         tenantId,
+        ...(kind ? { kind } : {}),
       },
       select: {
         id: true,
         tenantId: true,
         websiteId: true,
         parentId: true,
+        blogCategoryId: true,
         draftVersionId: true,
         publishedVersionId: true,
       },
@@ -908,6 +996,23 @@ export class PagesService {
 
     if (!parent) {
       throw new BadRequestException("Parent page must belong to the same website and tenant");
+    }
+  }
+
+  private async assertBlogCategoryBelongsToWebsite(tenantId: string, websiteId: string, categoryId: string) {
+    const category = await this.prisma.blogCategory.findFirst({
+      where: {
+        id: categoryId,
+        tenantId,
+        websiteId,
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (!category) {
+      throw new BadRequestException("Blog category must belong to the same website and tenant");
     }
   }
 
@@ -991,9 +1096,11 @@ export const pageSelect = {
   tenantId: true,
   websiteId: true,
   parentId: true,
+  blogCategoryId: true,
   title: true,
   slug: true,
   templateId: true,
+  kind: true,
   seo: true,
   status: true,
   draftVersionId: true,
@@ -1006,15 +1113,27 @@ export const pageListSelect = {
   id: true,
   websiteId: true,
   parentId: true,
+  blogCategoryId: true,
   title: true,
   slug: true,
   templateId: true,
+  kind: true,
   status: true,
   draftVersionId: true,
   publishedVersionId: true,
   createdAt: true,
   updatedAt: true,
 } satisfies Prisma.PageSelect;
+
+export const blogCategorySelect = {
+  id: true,
+  tenantId: true,
+  websiteId: true,
+  name: true,
+  slug: true,
+  createdAt: true,
+  updatedAt: true,
+} satisfies Prisma.BlogCategorySelect;
 
 export const pageTreeSelect = {
   id: true,
@@ -1101,6 +1220,27 @@ function parseOptionalPageStatusFilter(value: unknown): PageStatus | undefined {
   }
 
   return status as PageStatus;
+}
+
+function parseOptionalPageKind(value: unknown): PageKind {
+  if (value === undefined || value === null || value === "" || value === "page") {
+    return PageKind.PAGE;
+  }
+
+  const kind = requiredString(value, "kind").toUpperCase();
+  if (!Object.values(PageKind).includes(kind as PageKind)) {
+    throw new BadRequestException("kind must be page or blog");
+  }
+
+  return kind as PageKind;
+}
+
+function parseOptionalExpectedPageKind(value: unknown): PageKind | undefined {
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+
+  return parseOptionalPageKind(value);
 }
 
 function parsePageIds(value: unknown): string[] {
@@ -1331,6 +1471,17 @@ function normalizePath(value: unknown): string[] {
     .map((segment) => segment.trim().toLowerCase())
     .filter(Boolean)
     .map((segment) => requiredSlug(segment, "path segment"));
+}
+
+function slugify(value: string) {
+  const slug = value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .replace(/-{2,}/g, "-");
+
+  return requiredSlug(slug, "slug");
 }
 
 function mapUniqueError(error: unknown, message: string): Error {

@@ -632,7 +632,12 @@ const BOOTSTRAP_SCRIPT = `
       var footerInstances = pickActiveVariant(toThemeInstances(payload.groups.footer), "footer", settings);
       var header = React.createElement(React.Fragment, null, wrapInstances(headerInstances, registry));
       var footer = React.createElement(React.Fragment, null, wrapInstances(footerInstances, registry));
-      var bodyProps = { sections: toThemeInstances(payload.groups.template), query: "", results: [], resultCount: 0 };
+      // The generic "page" template (templates/page.tsx in Copora) renders a title header
+      // straight from this prop — omitting it (title stayed undefined here) rendered an empty
+      // h1 that still took up its section's full padding-block, showing as a bare gap above
+      // whatever body sections follow it. payload.page is the only thing here that carries the
+      // page's real name, so it's the source of truth for any template needing one.
+      var bodyProps = { title: payload.page ? payload.page.label : "", sections: toThemeInstances(payload.groups.template), query: "", results: [], resultCount: 0 };
       var body = React.createElement(TemplateComponent, bodyProps);
 
       var tree = React.createElement(ThemeLayout, { settings: settings, header: header, footer: footer }, body);

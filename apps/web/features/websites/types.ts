@@ -33,12 +33,24 @@ export interface PageSummary {
   id: string;
   websiteId: string;
   parentId: string | null;
+  blogCategoryId: string | null;
   title: string;
   slug: string;
   templateId: string | null;
+  kind: "PAGE" | "BLOG";
   status: "DRAFT" | "PUBLISHED" | "ARCHIVED";
   draftVersionId: string | null;
   publishedVersionId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BlogCategorySummary {
+  id: string;
+  tenantId: string;
+  websiteId: string;
+  name: string;
+  slug: string;
   createdAt: string;
   updatedAt: string;
 }

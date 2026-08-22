@@ -12,6 +12,7 @@ export {
   MediaAccess,
   MembershipRole,
   MembershipStatus,
+  PageKind,
   PageStatus,
   PageVersionStatus,
   Prisma,

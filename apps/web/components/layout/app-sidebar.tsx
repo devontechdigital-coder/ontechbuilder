@@ -2,6 +2,7 @@
 
 import {
   BarChart3,
+  BookOpenText,
   ChevronsUpDown,
   CircleGauge,
   Database,
@@ -41,6 +42,7 @@ const navGroups = [
     label: "Content",
     items: [
       { label: "Pages", href: "pages", icon: LayoutList },
+      { label: "Blogs", href: "blogs", icon: BookOpenText },
       { label: "Themes", href: "themes", icon: Palette },
       { label: "Domains", href: "domains", icon: Database },
       { label: "Settings", href: "settings", icon: Settings },

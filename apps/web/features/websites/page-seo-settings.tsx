@@ -39,11 +39,13 @@ export function PageSeoSettingsModal({
   website,
   open,
   onClose,
+  endpointBase = "pages",
 }: {
   page: PageSummary | null;
   website: WebsiteSummary;
   open: boolean;
   onClose: () => void;
+  endpointBase?: "pages" | "blogs";
 }) {
   const [seo, setSeo] = useState<PageSeoSettings>(defaultSeoSettings);
   const [isLoading, setIsLoading] = useState(false);
@@ -72,7 +74,7 @@ export function PageSeoSettingsModal({
 
     async function loadSeo() {
       try {
-        const response = await apiRequest<PageSeoSettings>(`/pages/${currentPage.id}/seo`);
+        const response = await apiRequest<PageSeoSettings>(`/${endpointBase}/${currentPage.id}/seo`);
         if (mounted) {
           setSeo({ ...defaultSeoSettings, ...response });
         }
@@ -93,7 +95,7 @@ export function PageSeoSettingsModal({
     return () => {
       mounted = false;
     };
-  }, [open, page]);
+  }, [endpointBase, open, page]);
 
   function update<K extends keyof PageSeoSettings>(key: K, value: PageSeoSettings[K]) {
     setSeo((current) => ({ ...current, [key]: value }));
@@ -114,7 +116,7 @@ export function PageSeoSettingsModal({
     setError(null);
     setSaved(false);
     try {
-      const response = await apiRequest<PageSeoSettings>(`/pages/${page.id}/seo`, {
+      const response = await apiRequest<PageSeoSettings>(`/${endpointBase}/${page.id}/seo`, {
         method: "PATCH",
         body: JSON.stringify({ seo }),
       });
