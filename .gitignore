@@ -38,3 +38,4 @@ Thumbs.db
 # Local theme bundle scratch directories
 *-theme-zip/
 *-universal-zip/
+*.zip
