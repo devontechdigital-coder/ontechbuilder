@@ -93,6 +93,7 @@ export function ThemeCodeEditorPage({
         setWebsite(websiteResponse);
         setTheme(themeResponse);
         setDraft(draftResponse);
+        setCollapsedFolders(new Set(collectFolderPaths(Object.keys(draftResponse.files))));
         setSelectedFilePath(firstPath);
         setFileContent(firstPath ? draftResponse.files[firstPath] ?? "" : "");
         setOpenFiles(firstPath ? [firstPath] : []);
@@ -337,6 +338,21 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 type FileTreeEntry =
   | { type: "folder"; name: string; path: string; children: FileTreeEntry[] }
   | { type: "file"; name: string; path: string };
+
+/** Every ancestor directory of every path — used to seed collapsedFolders so the tree opens collapsed by default. */
+function collectFolderPaths(paths: string[]): string[] {
+  const folders = new Set<string>();
+  for (const path of paths) {
+    const parts = path.split("/");
+    let current = "";
+    for (let i = 0; i < parts.length - 1; i += 1) {
+      const part = parts[i] ?? "";
+      current = current ? `${current}/${part}` : part;
+      folders.add(current);
+    }
+  }
+  return [...folders];
+}
 
 /**
  * Mirrors the uploaded theme's real folder structure exactly (sections/Header/, sections/Header/variants/,

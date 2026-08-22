@@ -82,6 +82,32 @@ interface CreateBlogCategoryInput extends ActorInput {
   slug?: unknown;
 }
 
+interface ListBlogCategoriesInput extends ActorInput {
+  websiteId: string;
+  status?: unknown;
+  query?: unknown;
+  includeCounts?: unknown;
+}
+
+interface UpdateBlogCategoryInput extends ActorInput {
+  categoryId: string;
+  name?: unknown;
+  slug?: unknown;
+  status?: unknown;
+  image?: unknown;
+  imageAlt?: unknown;
+}
+
+interface UpdateBlogCategorySeoInput extends ActorInput {
+  categoryId: string;
+  seo: unknown;
+}
+
+interface BulkBlogCategoryActionInput extends ActorInput {
+  categoryIds: unknown;
+  action: unknown;
+}
+
 interface BulkPageActionInput extends ActorInput {
   pageIds: unknown;
   action: unknown;
@@ -117,6 +143,9 @@ const defaultSeoSettings = {
   twitterTitle: "",
   twitterDescription: "",
   twitterImage: "",
+  /** Blog posts only — the featured image shown in blog listings/cards and its accessibility alt text. */
+  blogImage: "",
+  blogImageAlt: "",
   structuredData: "",
   headCode: "",
   bodyCode: "",
@@ -682,19 +711,87 @@ export class PagesService {
     return buildTree(pages, website.homePageId);
   }
 
-  async listBlogCategories(input: ActorInput & { websiteId: string }) {
+  async listBlogCategories(input: ListBlogCategoriesInput) {
     await this.access.assertWebsiteAccess(input.actorUserId, input.tenantId, input.websiteId);
+    const status = parseOptionalPageStatusFilter(input.status);
+    const query = optionalString(input.query, "q")?.trim();
+    const baseWhere: Prisma.BlogCategoryWhereInput = {
+      tenantId: input.tenantId,
+      websiteId: input.websiteId,
+      ...(query
+        ? {
+            OR: [
+              { name: { contains: query, mode: "insensitive" } },
+              { slug: { contains: query, mode: "insensitive" } },
+            ],
+          }
+        : {}),
+    };
 
-    return this.prisma.blogCategory.findMany({
+    const data = await this.prisma.blogCategory.findMany({
       where: {
-        tenantId: input.tenantId,
-        websiteId: input.websiteId,
+        ...baseWhere,
+        ...(status
+          ? { status }
+          : {
+              status: {
+                not: PageStatus.ARCHIVED,
+              },
+            }),
       },
       orderBy: {
         name: "asc",
       },
       select: blogCategorySelect,
     });
+
+    if (!parseOptionalQueryBoolean(input.includeCounts, "includeCounts")) {
+      return data;
+    }
+
+    const groupedCounts = await this.prisma.blogCategory.groupBy({
+      by: ["status"],
+      where: {
+        tenantId: input.tenantId,
+        websiteId: input.websiteId,
+      },
+      _count: {
+        _all: true,
+      },
+    });
+    const counts = {
+      all: groupedCounts.reduce((total, item) => total + (item.status === PageStatus.ARCHIVED ? 0 : item._count._all), 0),
+      DRAFT: 0,
+      PUBLISHED: 0,
+      ARCHIVED: 0,
+    };
+
+    for (const item of groupedCounts) {
+      counts[item.status] = item._count._all;
+    }
+
+    return {
+      data,
+      counts,
+    };
+  }
+
+  async getBlogCategory(actorUserId: string, tenantId: string, categoryId: string) {
+    await this.access.assertTenantMember(actorUserId, tenantId);
+
+    const category = await this.prisma.blogCategory.findFirst({
+      where: {
+        id: categoryId,
+        tenantId,
+      },
+      select: blogCategorySelect,
+    });
+
+    if (!category) {
+      throw new NotFoundException("Blog category was not found in this tenant");
+    }
+
+    return category;
   }
 
   async createBlogCategory(input: CreateBlogCategoryInput) {
@@ -716,6 +813,258 @@ export class PagesService {
     } catch (error) {
       throw mapUniqueError(error, "Blog category slug already exists for this website");
     }
+  }
+
+  async updateBlogCategory(input: UpdateBlogCategoryInput) {
+    const category = await this.assertBlogCategoryAccessForActor(input.actorUserId, input.tenantId, input.categoryId);
+    const data: Prisma.BlogCategoryUpdateInput = {};
+
+    if (input.name !== undefined) {
+      data.name = requiredString(input.name, "name");
+    }
+
+    if (input.slug !== undefined) {
+      data.slug = requiredSlug(input.slug);
+    }
+
+    if (input.status !== undefined) {
+      data.status = parsePageStatus(input.status);
+    }
+
+    if (input.image !== undefined) {
+      data.image = optionalString(input.image, "image") ?? null;
+    }
+
+    if (input.imageAlt !== undefined) {
+      data.imageAlt = optionalString(input.imageAlt, "imageAlt") ?? null;
+    }
+
+    if (!Object.keys(data).length) {
+      throw new BadRequestException("At least one blog category field is required");
+    }
+
+    try {
+      return await this.prisma.blogCategory.update({
+        where: {
+          id: category.id,
+          tenantId: input.tenantId,
+        },
+        data,
+        select: blogCategorySelect,
+      });
+    } catch (error) {
+      throw mapUniqueError(error, "Blog category slug already exists for this website");
+    }
+  }
+
+  async getBlogCategorySeo(actorUserId: string, tenantId: string, categoryId: string) {
+    await this.access.assertTenantMember(actorUserId, tenantId);
+
+    const category = await this.prisma.blogCategory.findFirst({
+      where: {
+        id: categoryId,
+        tenantId,
+      },
+      select: {
+        seo: true,
+      },
+    });
+
+    if (!category) {
+      throw new NotFoundException("Blog category was not found in this tenant");
+    }
+
+    return normalizeSeoSettings(category.seo);
+  }
+
+  async updateBlogCategorySeo(input: UpdateBlogCategorySeoInput) {
+    const category = await this.assertBlogCategoryAccessForActor(input.actorUserId, input.tenantId, input.categoryId);
+    const seo = parseSeoSettings(input.seo);
+
+    const updated = await this.prisma.blogCategory.update({
+      where: {
+        id: category.id,
+        tenantId: input.tenantId,
+      },
+      data: {
+        seo,
+      },
+      select: {
+        seo: true,
+      },
+    });
+
+    return normalizeSeoSettings(updated.seo);
+  }
+
+  async cloneBlogCategory(actorUserId: string, tenantId: string, categoryId: string) {
+    await this.access.assertTenantMember(actorUserId, tenantId);
+
+    const source = await this.prisma.blogCategory.findFirst({
+      where: {
+        id: categoryId,
+        tenantId,
+      },
+      select: {
+        websiteId: true,
+        name: true,
+        slug: true,
+        image: true,
+        imageAlt: true,
+        seo: true,
+      },
+    });
+
+    if (!source) {
+      throw new NotFoundException("Blog category was not found in this tenant");
+    }
+
+    const slug = await this.getUniqueBlogCategorySlug(tenantId, source.websiteId, `${source.slug}-copy`);
+
+    return this.prisma.blogCategory.create({
+      data: {
+        tenantId,
+        websiteId: source.websiteId,
+        name: `${source.name} copy`,
+        slug,
+        image: source.image,
+        imageAlt: source.imageAlt,
+        seo: source.seo as Prisma.InputJsonValue,
+        status: PageStatus.DRAFT,
+      },
+      select: blogCategorySelect,
+    });
+  }
+
+  async archiveBlogCategory(actorUserId: string, tenantId: string, categoryId: string) {
+    const category = await this.assertBlogCategoryAccessForActor(actorUserId, tenantId, categoryId);
+
+    return this.prisma.blogCategory.update({
+      where: {
+        id: category.id,
+        tenantId,
+      },
+      data: {
+        status: PageStatus.ARCHIVED,
+      },
+      select: {
+        id: true,
+        status: true,
+      },
+    });
+  }
+
+  async bulkBlogCategoryAction(input: BulkBlogCategoryActionInput) {
+    await this.access.assertTenantMember(input.actorUserId, input.tenantId);
+    const categoryIds = parseBlogCategoryIds(input.categoryIds);
+    const action = parseBulkPageAction(input.action);
+
+    if (action === "DELETE") {
+      return this.deleteBlogCategories(input.actorUserId, input.tenantId, categoryIds);
+    }
+
+    const status = action === "PUBLISH" ? PageStatus.PUBLISHED : action === "DRAFT" ? PageStatus.DRAFT : PageStatus.ARCHIVED;
+    const categories = await this.prisma.blogCategory.findMany({
+      where: {
+        id: { in: categoryIds },
+        tenantId: input.tenantId,
+      },
+      select: { id: true },
+    });
+
+    if (categories.length !== categoryIds.length) {
+      throw new NotFoundException("One or more blog categories were not found in this tenant");
+    }
+
+    await this.prisma.blogCategory.updateMany({
+      where: {
+        id: { in: categoryIds },
+        tenantId: input.tenantId,
+      },
+      data: {
+        status,
+      },
+    });
+
+    return { updated: categoryIds.length, status };
+  }
+
+  private async deleteBlogCategories(actorUserId: string, tenantId: string, categoryIds: string[]) {
+    await this.access.assertTenantMember(actorUserId, tenantId);
+
+    const categories = await this.prisma.blogCategory.findMany({
+      where: {
+        id: { in: categoryIds },
+        tenantId,
+      },
+      select: { id: true },
+    });
+
+    if (categories.length !== categoryIds.length) {
+      throw new NotFoundException("One or more blog categories were not found in this tenant");
+    }
+
+    await this.prisma.blogCategory.deleteMany({
+      where: {
+        id: { in: categoryIds },
+        tenantId,
+      },
+    });
+
+    return { deleted: categoryIds.length };
+  }
+
+  private async assertBlogCategoryAccessForActor(actorUserId: string, tenantId: string, categoryId: string) {
+    await this.access.assertTenantMember(actorUserId, tenantId);
+    return this.assertBlogCategoryAccess(tenantId, categoryId);
+  }
+
+  private async assertBlogCategoryAccess(tenantId: string, categoryId: string) {
+    const category = await this.prisma.blogCategory.findFirst({
+      where: {
+        id: categoryId,
+        tenantId,
+      },
+      select: {
+        id: true,
+        websiteId: true,
+      },
+    });
+
+    if (!category) {
+      throw new NotFoundException("Blog category was not found in this tenant");
+    }
+
+    return category;
+  }
+
+  private async getUniqueBlogCategorySlug(tenantId: string, websiteId: string, baseSlug: string) {
+    const existingCategories = await this.prisma.blogCategory.findMany({
+      where: {
+        tenantId,
+        websiteId,
+        slug: {
+          startsWith: baseSlug,
+        },
+      },
+      select: {
+        slug: true,
+      },
+    });
+    const existingSlugs = new Set(existingCategories.map((category) => category.slug));
+
+    if (!existingSlugs.has(baseSlug)) {
+      return baseSlug;
+    }
+
+    for (let suffix = 2; suffix <= 500; suffix += 1) {
+      const slug = `${baseSlug}-${suffix}`;
+      if (!existingSlugs.has(slug)) {
+        return slug;
+      }
+    }
+
+    throw new ConflictException("Could not generate a unique blog category slug");
   }
 
   async createVersion(input: CreateVersionInput) {
@@ -1131,6 +1480,9 @@ export const blogCategorySelect = {
   websiteId: true,
   name: true,
   slug: true,
+  image: true,
+  imageAlt: true,
+  status: true,
   createdAt: true,
   updatedAt: true,
 } satisfies Prisma.BlogCategorySelect;
@@ -1257,6 +1609,20 @@ function parsePageIds(value: unknown): string[] {
   return uniqueIds;
 }
 
+function parseBlogCategoryIds(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    throw new BadRequestException("categoryIds must be an array");
+  }
+
+  const ids = value.map((item) => requiredString(item, "categoryId"));
+  const uniqueIds = Array.from(new Set(ids));
+  if (!uniqueIds.length) {
+    throw new BadRequestException("At least one blog category must be selected");
+  }
+
+  return uniqueIds;
+}
+
 function parseBulkPageAction(value: unknown): "PUBLISH" | "DRAFT" | "ARCHIVE" | "DELETE" {
   const action = requiredString(value, "action").toUpperCase();
 
@@ -1331,6 +1697,8 @@ function parseSeoSettings(value: unknown): Prisma.InputJsonValue {
     twitterTitle: seoString(source.twitterTitle, "twitterTitle", 120),
     twitterDescription: seoString(source.twitterDescription, "twitterDescription", 320),
     twitterImage: seoString(source.twitterImage, "twitterImage", 1_000),
+    blogImage: seoString(source.blogImage, "blogImage", 1_000),
+    blogImageAlt: seoString(source.blogImageAlt, "blogImageAlt", 200),
     structuredData: seoString(source.structuredData, "structuredData", maxSeoFieldLength),
     headCode: seoString(source.headCode, "headCode", maxSeoFieldLength),
     bodyCode: seoString(source.bodyCode, "bodyCode", maxSeoFieldLength),

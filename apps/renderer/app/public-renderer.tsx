@@ -106,6 +106,7 @@ async function renderThemedPage(page: NonNullable<PublicSiteResponse["page"]>, t
       customizerSettings: themeEngine.settings,
       templateId,
       pageKey: page.id,
+      pageTitle: page.title,
     };
     // RENDERER_INTERNAL_URL is set explicitly in the render-one-service deployment
     // (this app's own port there is 4102-ish, not 3001) — process.env.PORT is a

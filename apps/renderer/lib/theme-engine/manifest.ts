@@ -1,10 +1,12 @@
 export type ThemeEngineManifest = {
   sectionComponentPaths: Record<string, string>;
+  /** Header/footer components some themes keep in their own `partials:` map (see build-bundle.ts's registry merge). */
+  partialComponentPaths: Record<string, string>;
   templatePaths: Record<string, string>;
   blocksPropBySchemaId: Record<string, string | null>;
 };
 
-function parseIdToPathBlock(source: string | undefined, key: "sections" | "templates"): Record<string, string> {
+function parseIdToPathBlock(source: string | undefined, key: "sections" | "templates" | "partials"): Record<string, string> {
   if (!source) return {};
   const block = source.match(new RegExp(`${key}:\\s*\\{([\\s\\S]*?)\\n\\s*\\},`))?.[1] ?? "";
   const out: Record<string, string> = {};
@@ -30,7 +32,7 @@ export function componentNameFromPath(path: string): string {
  * which prop a given section expects its blocks array under.
  */
 function findBlocksPropName(source: string, componentName: string): string | null {
-  const interfaceMatch = source.match(new RegExp(`interface\\s+${componentName}Props\\s*\\{([\\s\\S]*?)\\n\\}`));
+  const interfaceMatch = source.match(new RegExp(`interface\\s+${componentName}Props(?:\\s+extends\\s+[^{]+)?\\s*\\{([\\s\\S]*?)\\n\\}`));
   const body = interfaceMatch?.[1] ?? "";
   const fieldMatch = body.match(/(\w+)\??:\s*RawBlock\[\]/);
   return fieldMatch?.[1] ?? null;
@@ -40,11 +42,12 @@ function findBlocksPropName(source: string, componentName: string): string | nul
 export function parseThemeEngineManifest(files: Record<string, string>): ThemeEngineManifest {
   const configSource = files["theme.config.ts"];
   const sectionComponentPaths = parseIdToPathBlock(configSource, "sections");
+  const partialComponentPaths = parseIdToPathBlock(configSource, "partials");
   const templatePaths = parseIdToPathBlock(configSource, "templates");
   const blocksPropBySchemaId: Record<string, string | null> = {};
-  for (const [schemaId, path] of Object.entries(sectionComponentPaths)) {
+  for (const [schemaId, path] of Object.entries({ ...sectionComponentPaths, ...partialComponentPaths })) {
     const source = files[path];
     blocksPropBySchemaId[schemaId] = source ? findBlocksPropName(source, componentNameFromPath(path)) : null;
   }
-  return { sectionComponentPaths, templatePaths, blocksPropBySchemaId };
+  return { sectionComponentPaths, partialComponentPaths, templatePaths, blocksPropBySchemaId };
 }

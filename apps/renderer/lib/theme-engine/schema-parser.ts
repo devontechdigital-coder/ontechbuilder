@@ -1,7 +1,7 @@
 /**
- * Vendored, verbatim (aside from these two import lines), from
+ * Vendored, verbatim (aside from this import line), from
  * apps/web/features/websites/customizer/schema-parser.ts — see
- * render.ts for why this app carries its own copy instead of importing
+ * render.tsx for why this app carries its own copy instead of importing
  * across apps. Keep in sync by hand.
  */
 import type { BlockSchema, SectionSchema, SelectOption, TemplateSectionScope, ThemeDraftSummary, ThemeInstallationSummary, ThemeSetting } from "./types";
@@ -68,17 +68,49 @@ export function getDraftSettingsSchema(draft: ThemeDraftSummary | null) {
   return Array.isArray(schema) ? schema.filter(isThemeSettingDefinition) : [];
 }
 
+const GLOBAL_SETTINGS_PATH = "config/settings.schema.ts";
+
 export function getFileSettingsSchema(draft: ThemeDraftSummary | null) {
-  const source = draft?.files?.["config/settings.schema.ts"];
-  if (!source) return [];
-  return parseThemeSettings(source);
+  const source = draft?.files?.[GLOBAL_SETTINGS_PATH];
+  const files = draft?.files;
+  if (!source || !files) return [];
+  return parseThemeSettings(getGlobalSettingsSource(source), { files, path: GLOBAL_SETTINGS_PATH });
+}
+
+/**
+ * Scopes parsing to just the `groups: [...]` array of the file's exported settings-schema object.
+ * This file commonly also exports shared option constants and per-section helper functions (e.g. a
+ * `baseSectionSettings()` composed into individual sections' own schemas) for section schema.ts files
+ * to import — scanning the whole file would misread those as additional global settings, sometimes
+ * colliding in `id` with an unrelated field actually declared inside `groups`.
+ */
+function getGlobalSettingsSource(source: string): string {
+  const match = source.match(/groups:\s*\[/);
+  if (!match || match.index === undefined) return source;
+  const bracketStart = match.index + match[0].length - 1;
+  const bracketEnd = findMatchingBracket(source, bracketStart, "[", "]");
+  return source.slice(bracketStart, bracketEnd + 1);
+}
+
+/**
+ * Some themes put header/footer schemas under their own `partials/` directory rather than
+ * `sections/` (with `components/sectionRegistry.tsx` split into a separate `partialRegistry.tsx`
+ * too — see resolveThemeEngineRegistries in theme-engine/build-bundle.ts for the render side of
+ * this). A theme offering multiple header/footer designs (e.g. per-vertical variants) also names
+ * each variant's schema file after the component (`HeaderDentora.schema.ts`) instead of the plain
+ * `schema.ts` a section with only one design uses — both conventions are schema files, so both match.
+ */
+function isSectionSchemaPath(path: string): boolean {
+  if (!path.startsWith("sections/") && !path.startsWith("partials/")) return false;
+  const basename = path.split("/").pop() ?? "";
+  return basename === "schema.ts" || basename.endsWith(".schema.ts");
 }
 
 export function getFileSectionSchemas(draft: ThemeDraftSummary | null): SectionSchema[] {
   const files = draft?.files ?? {};
   const sectionEntries = Object.entries(files)
-    .filter(([path]) => path.startsWith("sections/") && path.endsWith("/schema.ts"))
-    .map(([path, source]) => parseSectionSchemaFile(path, source));
+    .filter(([path]) => isSectionSchemaPath(path))
+    .map(([path, source]) => parseSectionSchemaFile(path, source, files));
   return sortSectionsByThemeTemplate(sortSectionsByThemeConfig(sectionEntries, files["theme.config.ts"]), files["templates/index.tsx"]);
 }
 
@@ -98,7 +130,7 @@ export function getDraftSectionSchemas(draft: ThemeDraftSummary | null): Section
     .map((schema) => ({ ...schema, category: schema.category ?? "Sections", blocks: schema.blocks ?? [] }));
 }
 
-function parseSectionSchemaFile(path: string, source: string): SectionSchema {
+function parseSectionSchemaFile(path: string, source: string, files: Record<string, string>): SectionSchema {
   const folderName = path.split("/")[1] ?? "section";
   const rootSource = getRootSectionSource(source);
   const id = matchStringProperty(rootSource, "id") ?? matchStringProperty(rootSource, "type") ?? kebabCase(folderName);
@@ -106,12 +138,13 @@ function parseSectionSchemaFile(path: string, source: string): SectionSchema {
   const blocksBlock = getArrayBlock(source, "blocks");
   const maxBlocks = matchNumberProperty(source, "maxBlocks");
   const defaultBlocks = parseDefaultBlocks(source);
+  const ctx: ResolveContext = { files, path };
   return {
     id,
     name: matchStringProperty(rootSource, "name") ?? titleCase(id),
     category: matchStringProperty(rootSource, "category") ?? "Sections",
-    settings: parseThemeSettings(settingsBlock),
-    blocks: parseThemeBlocks(blocksBlock),
+    settings: parseThemeSettings(settingsBlock, ctx),
+    blocks: parseThemeBlocks(blocksBlock, ctx),
     ...(maxBlocks !== undefined ? { maxBlocks } : {}),
     ...(defaultBlocks.length ? { defaultBlocks } : {}),
   };
@@ -124,9 +157,16 @@ function getRootSectionSource(source: string) {
   return cutPoints.length ? source.slice(0, Math.min(...cutPoints)) : source;
 }
 
-export function parseThemeSettings(source: string | undefined): ThemeSetting[] {
+/** Lets option lists reference a constant/helper defined elsewhere in the theme (see resolveOptionsIdentifier below). */
+export type ResolveContext = { files: Record<string, string>; path: string };
+
+export function parseThemeSettings(source: string | undefined, ctx?: ResolveContext): ThemeSetting[] {
   if (!source) return [];
-  return getObjectLiterals(source)
+  const direct = getObjectLiterals(source)
+    // A helper like `function baseSectionSettings() { return [ {id:"tone",...}, {id:"containerWidth",...} ] }`
+    // is itself one big `{...}` chunk whose first nested field happens to satisfy the id/type/label
+    // check below, so it would otherwise be picked up as a duplicate of that field's own chunk.
+    .filter((chunk) => !/^\{\s*return\b/.test(chunk))
     .filter((chunk) => !chunk.includes("settings:") && matchStringProperty(chunk, "id") && matchStringProperty(chunk, "type") && matchStringProperty(chunk, "label"))
     .map((chunk) => {
       const setting: ThemeSetting = {
@@ -142,7 +182,7 @@ export function parseThemeSettings(source: string | undefined): ThemeSetting[] {
       const unit = matchStringProperty(chunk, "unit");
       const placeholder = matchStringProperty(chunk, "placeholder");
       const info = matchStringProperty(chunk, "info");
-      const options = parseSettingOptions(chunk);
+      const options = parseSettingOptions(chunk, ctx);
       if (defaultValue !== undefined) setting.default = defaultValue;
       if (min !== undefined) setting.min = min;
       if (max !== undefined) setting.max = max;
@@ -153,16 +193,35 @@ export function parseThemeSettings(source: string | undefined): ThemeSetting[] {
       if (options.length) setting.options = options;
       return setting;
     });
+  if (!ctx) return direct;
+  // `...baseSectionSettings()` — a spread of a shared helper's return value — carries no literal
+  // `{...}` for the scan above to find, so most real-world sections (this theme spreads it into 29
+  // of its 35) would otherwise show none of their Style/Spacing/Advanced fields at all. Explicit
+  // fields win on an id collision (rare, but a section could deliberately override one).
+  const spread = resolveSpreadSettings(source, ctx);
+  const seenIds = new Set(direct.map((setting) => setting.id));
+  return [...direct, ...spread.filter((setting) => !seenIds.has(setting.id))];
 }
 
-function parseThemeBlocks(source: string | undefined): BlockSchema[] {
+function resolveSpreadSettings(source: string, ctx: ResolveContext): ThemeSetting[] {
+  const results: ThemeSetting[] = [];
+  for (const match of source.matchAll(/\.\.\.([A-Za-z_$][\w$]*)\s*\(/g)) {
+    const identifier = match[1];
+    if (!identifier) continue;
+    const block = findExportedFunctionArrayBlock(identifier, ctx.path, ctx.files);
+    if (block) results.push(...parseThemeSettings(block, ctx));
+  }
+  return results;
+}
+
+function parseThemeBlocks(source: string | undefined, ctx?: ResolveContext): BlockSchema[] {
   if (!source) return [];
   return getObjectLiterals(source)
     .filter((chunk) => matchStringProperty(chunk, "type") && matchStringProperty(chunk, "name") && chunk.includes("settings"))
     .map((chunk) => ({
       type: matchStringProperty(chunk, "type") ?? "block",
       name: matchStringProperty(chunk, "name") ?? "Block",
-      settings: parseThemeSettings(getArrayBlock(chunk, "settings")).map((setting) => ({ ...setting, group: "Block" })),
+      settings: parseThemeSettings(getArrayBlock(chunk, "settings"), ctx).map((setting) => ({ ...setting, group: "Block" })),
     }));
 }
 
@@ -261,9 +320,24 @@ function findMatchingBracket(source: string, start: number, open: string, close:
   let quote: string | null = null;
   for (let index = start; index < source.length; index += 1) {
     const char = source[index];
+    const next = source[index + 1];
     const previous = source[index - 1];
     if (quote) {
       if (char === quote && previous !== "\\") quote = null;
+      continue;
+    }
+    // Apostrophes in ordinary prose ("editor's", "doesn't") inside // and /* */
+    // comments would otherwise be misread as opening a string literal, which
+    // desyncs quote-tracking for the rest of the source. Comments carry no
+    // brackets that matter to the caller, so skip them outright.
+    if (char === "/" && next === "/") {
+      const lineEnd = source.indexOf("\n", index);
+      index = lineEnd === -1 ? source.length : lineEnd;
+      continue;
+    }
+    if (char === "/" && next === "*") {
+      const commentEnd = source.indexOf("*/", index + 2);
+      index = commentEnd === -1 ? source.length : commentEnd + 1;
       continue;
     }
     if (char === "\"" || char === "'" || char === "`") {
@@ -277,8 +351,34 @@ function findMatchingBracket(source: string, start: number, open: string, close:
   return source.length - 1;
 }
 
+/**
+ * Reads one quoted string starting exactly at `start` (which must be a quote char), stopping at
+ * the first *unescaped instance of that same quote character* rather than either quote type. A
+ * naive `["'](...)["']` pattern truncates the instant a double-quoted string contains an embedded
+ * apostrophe — exactly what CSS font stacks like `"'Outfit', system-ui, sans-serif"` and ordinary
+ * prose like `"company's full potential"` do throughout a real theme's schema.ts files.
+ */
+function matchQuotedValue(source: string, start: number): string | undefined {
+  const quote = source[start];
+  if (quote !== "\"" && quote !== "'" && quote !== "`") return undefined;
+  let result = "";
+  for (let index = start + 1; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === "\\" && index + 1 < source.length) {
+      result += source[index + 1];
+      index += 1;
+      continue;
+    }
+    if (char === quote) return result;
+    result += char;
+  }
+  return undefined;
+}
+
 function matchStringProperty(source: string, key: string) {
-  return source.match(new RegExp(`${key}:\\s*["']([^"']+)["']`))?.[1];
+  const keyMatch = source.match(new RegExp(`${key}:\\s*`));
+  if (!keyMatch || keyMatch.index === undefined) return undefined;
+  return matchQuotedValue(source, keyMatch.index + keyMatch[0].length);
 }
 
 function matchNumberProperty(source: string, key: string) {
@@ -287,30 +387,164 @@ function matchNumberProperty(source: string, key: string) {
 }
 
 function matchDefaultProperty(source: string) {
-  const raw = source.match(/default:\s*(true|false|[0-9.]+|["']([\s\S]*?)["'])/)?.[1];
-  if (raw === undefined) return undefined;
-  if (raw === "true") return true;
-  if (raw === "false") return false;
-  if (/^[0-9.]+$/.test(raw)) return Number(raw);
-  return raw.replace(/^["']|["']$/g, "");
+  const keyMatch = source.match(/default:\s*/);
+  if (!keyMatch || keyMatch.index === undefined) return undefined;
+  const start = keyMatch.index + keyMatch[0].length;
+  const rest = source.slice(start);
+  if (/^true\b/.test(rest)) return true;
+  if (/^false\b/.test(rest)) return false;
+  const numberMatch = rest.match(/^[0-9.]+/);
+  if (numberMatch) return Number(numberMatch[0]);
+  return matchQuotedValue(source, start);
 }
 
-function parseSettingOptions(source: string): SelectOption[] {
-  const block = getArrayBlock(source, "options");
+/**
+ * `options:` in a real theme's schema.ts is as often a reference as a literal array — a shared
+ * constant imported from elsewhere (`options: aspectOptions`), or a call to a small helper that
+ * builds the list (`options: variantOptions([...])`, the convention this theme's five-design-per-
+ * section system runs on — see config/settings.schema.ts). Grabbing the first "[" after "options:"
+ * (the old behavior) either finds nothing for the former, or for the latter finds the raw label
+ * array and treats each label AS the stored value, so every design picker offers the right labels
+ * with the wrong underlying values (the real components only recognise "v1".."v5") — selecting a
+ * different design then silently does nothing. Both are handled explicitly below before falling
+ * back to that literal-array behavior for whatever this doesn't recognize.
+ */
+function parseSettingOptions(chunk: string, ctx?: ResolveContext): SelectOption[] {
+  const keyMatch = chunk.match(/options:\s*/);
+  if (!keyMatch || keyMatch.index === undefined) return [];
+  const valueStart = keyMatch.index + keyMatch[0].length;
+
+  const variantCall = chunk.slice(valueStart).match(/^variantOptions\s*\(/);
+  if (variantCall) {
+    const parenStart = valueStart + variantCall[0].length - 1;
+    const parenEnd = findMatchingBracket(chunk, parenStart, "(", ")");
+    const labels = [...chunk.slice(parenStart, parenEnd + 1).matchAll(/["']([^"']+)["']/g)].map((match) => match[1] ?? "");
+    return labels.map((label, index) => ({ value: `v${index + 1}`, label: `${index + 1} — ${label}` }));
+  }
+
+  const bareIdentifier = chunk.slice(valueStart).match(/^([A-Za-z_$][\w$]*)\s*[,}\n]/);
+  if (bareIdentifier?.[1] && ctx) {
+    const resolved = resolveOptionsIdentifier(bareIdentifier[1], ctx.path, ctx.files);
+    if (resolved.length) return resolved;
+  }
+
+  const block = getArrayBlock(chunk, "options");
   if (!block) return [];
-  const objectOptions = [...block.matchAll(/\{\s*value:\s*["']([^"']+)["']\s*,\s*label:\s*["']([^"']+)["']/g)].map((match) => ({
-    value: match[1] ?? "",
-    label: match[2] ?? "",
-  }));
+  return parseOptionsArrayBlock(block);
+}
+
+function parseOptionsArrayBlock(block: string): SelectOption[] {
+  const objectOptions = getObjectLiterals(block)
+    .map((chunk) => {
+      const value = matchStringProperty(chunk, "value");
+      const label = matchStringProperty(chunk, "label");
+      return value !== undefined && label !== undefined ? { value, label } : undefined;
+    })
+    .filter((option): option is { value: string; label: string } => Boolean(option));
   if (objectOptions.length) return objectOptions;
   return [...block.matchAll(/["']([^"']+)["']/g)].map((match) => match[1] ?? "");
+}
+
+/** Resolves `./relative` import specifiers against the importing file's own path, the same way a bundler would. */
+function resolveRelativeImportPath(fromPath: string, spec: string): string | undefined {
+  if (!spec.startsWith(".")) return undefined;
+  const fromDir = fromPath.split("/").slice(0, -1).join("/");
+  const joined = fromDir ? `${fromDir}/${spec}` : spec;
+  const stack: string[] = [];
+  for (const part of joined.split("/")) {
+    if (part === "" || part === ".") continue;
+    if (part === "..") stack.pop();
+    else stack.push(part);
+  }
+  return stack.join("/");
+}
+
+function resolveFilePath(base: string, files: Record<string, string>): string | undefined {
+  for (const candidate of [base, `${base}.ts`, `${base}.tsx`, `${base}/index.ts`, `${base}/index.tsx`]) {
+    if (files[candidate] !== undefined) return candidate;
+  }
+  return undefined;
+}
+
+/**
+ * Finds `identifier`'s own exported array literal, following one level of "this constant is just
+ * a shared source re-projected" indirection (`export const fontSelectOptions = FONT_OPTIONS.map(...)`)
+ * and one level of cross-file import, so a shared options constant defined in a different file than
+ * the section/setting that references it still resolves. Depth-limited against import cycles.
+ */
+/** If `identifier` isn't defined in `source`'s own file, follows that file's own import of it to the file that does. */
+function followIdentifierImport(identifier: string, path: string, files: Record<string, string>): string | undefined {
+  const source = files[path];
+  if (!source) return undefined;
+  const importMatch = source.match(new RegExp(`import\\s*\\{([^}]*\\b${identifier}\\b[^}]*)\\}\\s*from\\s*["']([^"']+)["']`));
+  const importedFrom = importMatch?.[2];
+  if (!importedFrom) return undefined;
+  const resolvedBase = resolveRelativeImportPath(path, importedFrom);
+  return resolvedBase ? resolveFilePath(resolvedBase, files) : undefined;
+}
+
+function findExportedArrayBlock(identifier: string, path: string, files: Record<string, string>, depth = 0): string | undefined {
+  if (depth > 4) return undefined;
+  const source = files[path];
+  if (!source) return undefined;
+
+  // "export" is optional: a constant only ever used within the file that defines it (e.g. a local
+  // headingFontOptions/bodyFontOptions helper) has no reason to be exported at all.
+  const directMatch = source.match(new RegExp(`(?:export\\s+)?const\\s+${identifier}\\b[^=]*=\\s*\\[`));
+  if (directMatch?.index !== undefined) {
+    const bracketStart = directMatch.index + directMatch[0].length - 1;
+    const end = findMatchingBracket(source, bracketStart, "[", "]");
+    return source.slice(bracketStart + 1, end);
+  }
+
+  const mapMatch = source.match(new RegExp(`(?:export\\s+)?const\\s+${identifier}\\b[^=]*=\\s*([A-Za-z_$][\\w$]*)\\s*\\.map\\s*\\(`));
+  if (mapMatch?.[1]) return findExportedArrayBlock(mapMatch[1], path, files, depth + 1);
+
+  const importedPath = followIdentifierImport(identifier, path, files);
+  return importedPath ? findExportedArrayBlock(identifier, importedPath, files, depth + 1) : undefined;
+}
+
+/**
+ * Resolves `...baseSectionSettings()`-style spreads: a helper function (not a plain constant)
+ * that `return`s an array of setting fields. Mirrors findExportedArrayBlock's const/import
+ * resolution, but reads the function body's `return [...]` instead of a `= [...]` initializer.
+ */
+function findExportedFunctionArrayBlock(identifier: string, path: string, files: Record<string, string>, depth = 0): string | undefined {
+  if (depth > 4) return undefined;
+  const source = files[path];
+  if (!source) return undefined;
+
+  const fnMatch = source.match(new RegExp(`(?:export\\s+)?function\\s+${identifier}\\s*\\([^)]*\\)[^{]*\\{`));
+  if (fnMatch?.index !== undefined) {
+    const bodyStart = fnMatch.index + fnMatch[0].length - 1;
+    const bodyEnd = findMatchingBracket(source, bodyStart, "{", "}");
+    const body = source.slice(bodyStart, bodyEnd + 1);
+    const returnMatch = body.match(/return\s*\[/);
+    if (returnMatch?.index !== undefined) {
+      const bracketStart = returnMatch.index + returnMatch[0].length - 1;
+      const bracketEnd = findMatchingBracket(body, bracketStart, "[", "]");
+      return body.slice(bracketStart + 1, bracketEnd);
+    }
+  }
+
+  const importedPath = followIdentifierImport(identifier, path, files);
+  return importedPath ? findExportedFunctionArrayBlock(identifier, importedPath, files, depth + 1) : undefined;
+}
+
+function resolveOptionsIdentifier(identifier: string, path: string, files: Record<string, string>): SelectOption[] {
+  const block = findExportedArrayBlock(identifier, path, files);
+  return block ? parseOptionsArrayBlock(block) : [];
 }
 
 function inferGroupNearSetting(source: string, chunk: string) {
   const index = source.indexOf(chunk);
   if (index < 0) return undefined;
   const before = source.slice(0, index);
-  return before.match(/header:\s*["']([^"']+)["'][\s\S]*?settings:\s*\[[\s\S]*$/)?.[1];
+  // Unanchored, this previously matched the FIRST "header:" in the whole file every time (a
+  // regex match isn't required to start at the end of the string), so every setting landed in
+  // whichever group happened to come first. Take the last (nearest-preceding) header instead.
+  const headers = [...before.matchAll(/header:\s*["']([^"']+)["']/g)];
+  return headers.length ? headers[headers.length - 1]?.[1] : undefined;
 }
 
 function normalizeSettingType(type: string) {

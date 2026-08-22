@@ -431,15 +431,29 @@ export function WebsiteWorkspace({
     await refresh();
   }
 
-  /** Homepages get the theme's home template; every other page defaults to its generic "page" template. */
+  /**
+   * A theme's template list mixes page templates (about, contact, case-studies, ...) with any
+   * blog-specific one(s) it ships (typically "blog", sometimes "article"/"post") — offering the
+   * whole list for a blog post let a merchant pick "about" or leave it on the generic "page"
+   * template by default, so the theme's real blog layout never actually got used. Falls back to
+   * the full list for a theme with no blog-named template at all, rather than showing nothing.
+   */
+  const blogTemplateOptions = useMemo(
+    () => templateOptions.filter((template) => /blog|article|post/i.test(template.id) || /blog|article|post/i.test(template.name)),
+    [templateOptions],
+  );
+  const relevantTemplateOptions = section === "blogs" && blogTemplateOptions.length ? blogTemplateOptions : templateOptions;
+
+  /** Homepages get the theme's home template; every other page defaults to its generic "page" template (or the theme's blog template, for blogs). */
   function defaultTemplateId(forHomePage: boolean): string {
-    if (!templateOptions.length) {
+    const candidates = relevantTemplateOptions;
+    if (!candidates.length) {
       return "";
     }
     const preferred = forHomePage
-      ? templateOptions.find((template) => isHomeTemplateId(template.id))
-      : (templateOptions.find((template) => template.id === "page") ?? templateOptions.find((template) => !isHomeTemplateId(template.id)));
-    return preferred?.id ?? templateOptions[0]?.id ?? "";
+      ? candidates.find((template) => isHomeTemplateId(template.id))
+      : (candidates.find((template) => template.id === "page") ?? candidates.find((template) => !isHomeTemplateId(template.id)));
+    return preferred?.id ?? candidates[0]?.id ?? "";
   }
 
   async function createPage(event: FormEvent<HTMLFormElement>) {
@@ -961,7 +975,7 @@ export function WebsiteWorkspace({
                       <td>
                         <div className="flex flex-wrap justify-end gap-1.5">
                           <Button asChild type="button" size="sm" variant="secondary">
-                            <Link href={`/builder/pages/${page.id}`}>
+                            <Link href={section === "blogs" ? `/builder/blog/${page.id}` : `/builder/pages/${page.id}`}>
                               <Code2 className="size-4" />
                               Builder
                             </Link>
@@ -1022,10 +1036,10 @@ export function WebsiteWorkspace({
                   required
                 />
               </Field>
-              {templateOptions.length ? (
+              {relevantTemplateOptions.length ? (
                 <Field label="Template" hint={`Controls which theme layout this ${contentLabels.singularTitle} opens with in the builder.`}>
                   <Select value={pageTemplateId} onChange={(event) => setPageTemplateId(event.target.value)}>
-                    {templateOptions.map((template) => (
+                    {relevantTemplateOptions.map((template) => (
                       <option key={template.id} value={template.id}>{template.name}</option>
                     ))}
                   </Select>
@@ -1084,10 +1098,10 @@ export function WebsiteWorkspace({
                   <option value="PUBLISHED">Published</option>
                 </Select>
               </Field>
-              {templateOptions.length ? (
+              {relevantTemplateOptions.length ? (
                 <Field label="Template" hint={`Controls which theme layout this ${contentLabels.singularTitle} opens with in the builder.`}>
                   <Select value={editingPageTemplateId} onChange={(event) => setEditingPageTemplateId(event.target.value)}>
-                    {templateOptions.map((template) => (
+                    {relevantTemplateOptions.map((template) => (
                       <option key={template.id} value={template.id}>{template.name}</option>
                     ))}
                   </Select>

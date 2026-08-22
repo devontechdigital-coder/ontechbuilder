@@ -82,10 +82,105 @@ export class PagesController {
 
   @Get("websites/:websiteId/blog-categories")
   @RequireRole(MembershipRole.VIEWER)
-  listBlogCategories(@Req() request: AuthenticatedRequest, @Param("websiteId") websiteId: string) {
+  listBlogCategories(
+    @Req() request: AuthenticatedRequest,
+    @Param("websiteId") websiteId: string,
+    @Query("status") status?: string,
+    @Query("q") query?: string,
+    @Query("includeCounts") includeCounts?: string,
+  ) {
     const user = getAuthenticatedUser(request);
     const activeTenant = getActiveTenant(request);
-    return this.pages.listBlogCategories({ actorUserId: user.id, tenantId: activeTenant.id, websiteId });
+    return this.pages.listBlogCategories({ actorUserId: user.id, tenantId: activeTenant.id, websiteId, status, query, includeCounts });
+  }
+
+  @Get("blog-categories/:categoryId")
+  @RequireRole(MembershipRole.VIEWER)
+  getBlogCategory(@Req() request: AuthenticatedRequest, @Param("categoryId") categoryId: string) {
+    const user = getAuthenticatedUser(request);
+    const activeTenant = getActiveTenant(request);
+    return this.pages.getBlogCategory(user.id, activeTenant.id, categoryId);
+  }
+
+  @Patch("blog-categories/:categoryId")
+  @RequireRole(MembershipRole.EDITOR)
+  updateBlogCategory(
+    @Req() request: AuthenticatedRequest,
+    @Param("categoryId") categoryId: string,
+    @Body() body: unknown,
+  ) {
+    const user = getAuthenticatedUser(request);
+    const activeTenant = getActiveTenant(request);
+    const input = body as Record<string, unknown>;
+
+    return this.pages.updateBlogCategory({
+      actorUserId: user.id,
+      tenantId: activeTenant.id,
+      categoryId,
+      name: input.name,
+      slug: input.slug,
+      status: input.status,
+      image: input.image,
+      imageAlt: input.imageAlt,
+    });
+  }
+
+  @Get("blog-categories/:categoryId/seo")
+  @RequireRole(MembershipRole.VIEWER)
+  getBlogCategorySeo(@Req() request: AuthenticatedRequest, @Param("categoryId") categoryId: string) {
+    const user = getAuthenticatedUser(request);
+    const activeTenant = getActiveTenant(request);
+    return this.pages.getBlogCategorySeo(user.id, activeTenant.id, categoryId);
+  }
+
+  @Patch("blog-categories/:categoryId/seo")
+  @RequireRole(MembershipRole.EDITOR)
+  updateBlogCategorySeo(
+    @Req() request: AuthenticatedRequest,
+    @Param("categoryId") categoryId: string,
+    @Body() body: unknown,
+  ) {
+    const user = getAuthenticatedUser(request);
+    const activeTenant = getActiveTenant(request);
+    const input = body as Record<string, unknown>;
+
+    return this.pages.updateBlogCategorySeo({
+      actorUserId: user.id,
+      tenantId: activeTenant.id,
+      categoryId,
+      seo: input.seo,
+    });
+  }
+
+  @Post("blog-categories/:categoryId/clone")
+  @RequireRole(MembershipRole.EDITOR)
+  cloneBlogCategory(@Req() request: AuthenticatedRequest, @Param("categoryId") categoryId: string) {
+    const user = getAuthenticatedUser(request);
+    const activeTenant = getActiveTenant(request);
+    return this.pages.cloneBlogCategory(user.id, activeTenant.id, categoryId);
+  }
+
+  @Post("blog-categories/:categoryId/archive")
+  @RequireRole(MembershipRole.EDITOR)
+  archiveBlogCategory(@Req() request: AuthenticatedRequest, @Param("categoryId") categoryId: string) {
+    const user = getAuthenticatedUser(request);
+    const activeTenant = getActiveTenant(request);
+    return this.pages.archiveBlogCategory(user.id, activeTenant.id, categoryId);
+  }
+
+  @Post("blog-categories/bulk")
+  @RequireRole(MembershipRole.EDITOR)
+  bulkBlogCategoryAction(@Req() request: AuthenticatedRequest, @Body() body: unknown) {
+    const user = getAuthenticatedUser(request);
+    const activeTenant = getActiveTenant(request);
+    const input = body as Record<string, unknown>;
+
+    return this.pages.bulkBlogCategoryAction({
+      actorUserId: user.id,
+      tenantId: activeTenant.id,
+      categoryIds: input.categoryIds,
+      action: input.action,
+    });
   }
 
   @Post("websites/:websiteId/blogs")

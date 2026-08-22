@@ -29,6 +29,8 @@ import type { SectionBlock, SectionGroups, SectionInstance } from "./types";
 
 const THEME_LAYOUT_PATH = "layout/ThemeLayout.tsx";
 const SECTION_REGISTRY_PATH = "components/sectionRegistry.tsx";
+/** Optional — only themes that keep header/footer in their own `partials/` directory (see schema-parser.ts's isSectionSchemaPath) ship this. */
+const PARTIAL_REGISTRY_PATH = "components/partialRegistry.tsx";
 const SETTINGS_DEFAULT_PATH = "config/settings.default.ts";
 const THEME_CSS_PATH = "assets/styles/theme.css";
 
@@ -43,6 +45,8 @@ export type RenderThemePageInput = {
   templateId: string;
   /** Storage key for this page's section content — the real page id for CMS pages. */
   pageKey: string;
+  /** The page's real name — some templates (a generic "page" template's own title header) render this directly; omitting it renders an empty heading that still takes up its section's full padding. */
+  pageTitle?: string;
 };
 
 export type RenderedThemePage = {
@@ -120,6 +124,34 @@ type ThemeInstance = { id: string; type: string; props: Record<string, unknown> 
 /** Dashboard-shaped SectionInstance[] -> the theme's own {id,type,props} shape, dropping disabled sections. */
 function toThemeInstances(sections: SectionInstance[], blocksPropBySchemaId: Record<string, string | null>): ThemeInstance[] {
   return sections.filter((section) => section.enabled).map((section) => ({ id: section.id, type: section.schemaId, props: buildSectionProps(section, blocksPropBySchemaId) }));
+}
+
+/**
+ * A theme with several header/footer designs (see schema-parser.ts's isSectionSchemaPath) picks
+ * the live one through a global setting rather than the header/footer group's instance list (e.g.
+ * Copora's "headerVariant": "classic" | "dentora" | "skyvilla" selects between the
+ * "header"/"header-dentora"/"header-skyvilla" partials) — so if the merchant has added more than
+ * one header/footer instance, only render whichever one that setting currently points at, rather
+ * than stacking all of them. Themes with just one instance (the common case) are unaffected.
+ * Mirrors theme-engine/build-bundle.ts's pickActiveVariant (the customizer's client-side copy).
+ */
+function pickActiveVariant(instances: ThemeInstance[], groupName: string, settings: Record<string, unknown>): ThemeInstance[] {
+  if (instances.length <= 1) return instances;
+  let variantKey: string | undefined;
+  for (const key of Object.keys(settings)) {
+    const lower = key.toLowerCase();
+    if (lower.indexOf(groupName) === 0 && (lower.includes("variant") || lower.includes("style") || lower.includes("layout"))) {
+      variantKey = key;
+      break;
+    }
+  }
+  if (!variantKey) return instances;
+  const value = String(settings[variantKey] ?? "").toLowerCase();
+  if (!value) return instances;
+  const specific = instances.filter((instance) => instance.type === `${groupName}-${value}`);
+  if (specific.length) return specific;
+  const canonical = instances.filter((instance) => instance.type === groupName);
+  return canonical.length ? canonical : instances;
 }
 
 /** If one section throws while rendering, this confines the damage to that section instead of failing the whole page. */
@@ -263,8 +295,18 @@ export async function renderThemePage(input: RenderThemePageInput): Promise<Rend
   if (!ThemeLayout) throw new Error(`Theme has no ThemeLayout export at ${THEME_LAYOUT_PATH}`);
 
   const registryModule = requireModule("__root__", `./${SECTION_REGISTRY_PATH}`) as { sectionRegistry?: Record<string, ThemeComponent> };
-  const registry = registryModule.sectionRegistry;
+  let registry = registryModule.sectionRegistry;
   if (!registry) throw new Error(`Theme has no sectionRegistry export at ${SECTION_REGISTRY_PATH}`);
+
+  // Some themes keep header/footer (and any per-vertical variants of them) in their own
+  // partials/ directory with a separate partialRegistry.tsx, rather than folding them into
+  // sectionRegistry. Their instance types never collide with body section ids, so merging is
+  // safe; without this, header/footer group instances would look up nothing in the registry
+  // and wrapInstances would render them as nothing at all.
+  if (files[PARTIAL_REGISTRY_PATH]) {
+    const partialModule = requireModule("__root__", `./${PARTIAL_REGISTRY_PATH}`) as { partialRegistry?: Record<string, ThemeComponent> };
+    if (partialModule.partialRegistry) registry = { ...registry, ...partialModule.partialRegistry };
+  }
 
   // Templates call their own RenderSections internally (some, like page.tsx,
   // wrap it with extra template-specific markup) — swap in a version that
@@ -297,13 +339,15 @@ export async function renderThemePage(input: RenderThemePageInput): Promise<Rend
   const { sectionSchemas, getTemplateScope } = resolveThemeRenderer(null, { manifest: storedManifest as never, files });
   const groups = getAllGroupSections(customizerSettings, pageKey, sectionSchemas, getTemplateScope(templateId));
 
-  const header = wrapInstances(toThemeInstances(groups.header, engineManifest.blocksPropBySchemaId), registry);
-  const footer = wrapInstances(toThemeInstances(groups.footer, engineManifest.blocksPropBySchemaId), registry);
+  const headerInstances = pickActiveVariant(toThemeInstances(groups.header, engineManifest.blocksPropBySchemaId), "header", settings);
+  const footerInstances = pickActiveVariant(toThemeInstances(groups.footer, engineManifest.blocksPropBySchemaId), "footer", settings);
+  const header = wrapInstances(headerInstances, registry);
+  const footer = wrapInstances(footerInstances, registry);
   const bodySections = toThemeInstances(groups.template, engineManifest.blocksPropBySchemaId);
 
   const tree = (
     <ThemeLayout settings={settings} header={<>{header}</>} footer={<>{footer}</>}>
-      <TemplateComponent sections={bodySections} query="" results={[]} resultCount={0} />
+      <TemplateComponent title={input.pageTitle ?? ""} sections={bodySections} query="" results={[]} resultCount={0} />
     </ThemeLayout>
   );
 

@@ -51,8 +51,21 @@ export interface BlogCategorySummary {
   websiteId: string;
   name: string;
   slug: string;
+  image: string | null;
+  imageAlt: string | null;
+  status: "DRAFT" | "PUBLISHED" | "ARCHIVED";
   createdAt: string;
   updatedAt: string;
+}
+
+export interface BlogCategoryListSummary {
+  data: BlogCategorySummary[];
+  counts: {
+    all: number;
+    DRAFT: number;
+    PUBLISHED: number;
+    ARCHIVED: number;
+  };
 }
 
 export interface PageListSummary {
@@ -200,6 +213,9 @@ export interface PageSeoSettings {
   twitterTitle: string;
   twitterDescription: string;
   twitterImage: string;
+  /** Blog posts only — the featured image shown in blog listings/cards and its accessibility alt text. */
+  blogImage: string;
+  blogImageAlt: string;
   structuredData: string;
   headCode: string;
   bodyCode: string;

@@ -8,7 +8,7 @@ import { Alert, Badge, Skeleton } from "../../components/ui/display";
 import { Field, Input, Select, Textarea } from "../../components/ui/form";
 import { Modal, Toast } from "../../components/ui/overlay";
 import { apiRequest } from "../../lib/api";
-import type { PageSeoSettings, PageSummary, WebsiteSummary } from "./types";
+import type { PageSeoSettings, WebsiteSummary } from "./types";
 
 const defaultSeoSettings: PageSeoSettings = {
   metaTitle: "",
@@ -28,11 +28,16 @@ const defaultSeoSettings: PageSeoSettings = {
   twitterTitle: "",
   twitterDescription: "",
   twitterImage: "",
+  blogImage: "",
+  blogImageAlt: "",
   structuredData: "",
   headCode: "",
   bodyCode: "",
   footerCode: "",
 };
+
+/** The modal only ever reads id/slug/title — a blog category (name standing in for title) fits this without needing its own near-duplicate modal. */
+export type SeoEditableTarget = { id: string; slug: string; title: string };
 
 export function PageSeoSettingsModal({
   page,
@@ -41,11 +46,11 @@ export function PageSeoSettingsModal({
   onClose,
   endpointBase = "pages",
 }: {
-  page: PageSummary | null;
+  page: SeoEditableTarget | null;
   website: WebsiteSummary;
   open: boolean;
   onClose: () => void;
-  endpointBase?: "pages" | "blogs";
+  endpointBase?: "pages" | "blogs" | "blog-categories";
 }) {
   const [seo, setSeo] = useState<PageSeoSettings>(defaultSeoSettings);
   const [isLoading, setIsLoading] = useState(false);
@@ -203,6 +208,17 @@ export function PageSeoSettingsModal({
                   ) : null}
                 </SwitchCard>
               </SeoSection>
+
+              {endpointBase === "blogs" ? (
+                <SeoSection title="Featured Image" description="Shown in blog listings and post cards across the theme.">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <ImageField label="Blog Image" value={seo.blogImage} onChange={(value) => update("blogImage", value)} />
+                    <Field label="Blog Image Alt Text" hint="Describes the image for screen readers and search engines.">
+                      <Input value={seo.blogImageAlt} onChange={(event) => update("blogImageAlt", event.target.value)} />
+                    </Field>
+                  </div>
+                </SeoSection>
+              ) : null}
 
               <SeoSection title="Search Engine Settings" description="Control indexing and crawler behavior.">
                 <div className="grid gap-4 md:grid-cols-2">
