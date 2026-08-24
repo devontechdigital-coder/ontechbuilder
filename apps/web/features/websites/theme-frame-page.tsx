@@ -8,6 +8,7 @@ import { getPreviewColors, StaticSitePreview, ThemeLivePreview } from "./customi
 import { getAllGroupSections, getCustomizerPageOptions, getNestedValue, resolvePageTemplateId } from "./customizer/state";
 import { resolveThemeRenderer } from "./customizer/theme-renderer";
 import { buildThemeEngineBundle } from "./customizer/theme-engine/build-bundle";
+import { expandFormShortcodes } from "./customizer/shortcodes";
 import {
   isThemeFrameMessage,
   postToOpaqueFrame,
@@ -27,6 +28,7 @@ interface MeResponse {
 }
 
 const REQUIRED_ENGINE_FILES = ["theme.config.ts", "layout/ThemeLayout.tsx", "components/sectionRegistry.tsx"];
+const publicApiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
 
 function hasRealThemeFiles(files: Record<string, string> | null): files is Record<string, string> {
   return !!files && REQUIRED_ENGINE_FILES.every((path) => typeof files[path] === "string" && files[path].length > 0);
@@ -125,9 +127,11 @@ export function ThemeFramePage({ params }: { params: Promise<{ id: string; theme
           const templateId = resolvePageTemplateId(page);
           const templateScope = getTemplateScope(templateId);
           const groups = getAllGroupSections(draftResponse.settings ?? {}, pageKey, sectionSchemas, templateScope);
+          const expandedGroups = await expandFormShortcodes(groups, publicApiBaseUrl, new Map());
+          if (cancelled) return;
 
           setPayload({
-            groups,
+            groups: expandedGroups as typeof groups,
             sectionSchemas,
             page,
             templateId,

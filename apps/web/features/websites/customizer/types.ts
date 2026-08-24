@@ -19,6 +19,8 @@ export type BlockSchema = {
   type: string;
   name: string;
   settings: ThemeSetting[];
+  /** Which tab a host's "Add block" picker groups this type under — see ontech-theme-zip's config/settings.schema.ts BlockSchema.group. Omitted (or "default") means this section's own purpose-built block type; "custom" means it's one of a shared reusable block library. */
+  group?: "default" | "custom";
 };
 
 /** Where a section lives in the outline — mirrors Shopify's Header / Template / Footer split. */

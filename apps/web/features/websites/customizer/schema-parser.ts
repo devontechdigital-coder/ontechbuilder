@@ -130,7 +130,6 @@ function parseSectionSchemaFile(path: string, source: string, files: Record<stri
   const rootSource = getRootSectionSource(source);
   const id = matchStringProperty(rootSource, "id") ?? matchStringProperty(rootSource, "type") ?? kebabCase(folderName);
   const settingsBlock = getArrayBlock(source, "settings");
-  const blocksBlock = getArrayBlock(source, "blocks");
   const maxBlocks = matchNumberProperty(source, "maxBlocks");
   const defaultBlocks = parseDefaultBlocks(source);
   const ctx: ResolveContext = { files, path };
@@ -139,10 +138,38 @@ function parseSectionSchemaFile(path: string, source: string, files: Record<stri
     name: matchStringProperty(rootSource, "name") ?? titleCase(id),
     category: matchStringProperty(rootSource, "category") ?? "Sections",
     settings: parseThemeSettings(settingsBlock, ctx),
-    blocks: parseThemeBlocks(blocksBlock, ctx),
+    blocks: parseSectionBlocks(source, ctx),
     ...(maxBlocks !== undefined ? { maxBlocks } : {}),
     ...(defaultBlocks.length ? { defaultBlocks } : {}),
   };
+}
+
+/**
+ * A section's own `blocks: [...]` is almost always an inline array literal, but a section can
+ * instead reuse a shared library wholesale (`blocks: customBlockLibrary` — see
+ * ontech-theme-zip's CustomSection/schema.ts and config/customBlocks.ts) rather than declare its
+ * own. `getArrayBlock`'s "find the next `[` after the key" approach would then walk straight past
+ * that bare identifier into whatever array happens to come later in the file (here, a totally
+ * unrelated `defaultBlocks: [...]`) and silently return the wrong content — this checks what
+ * immediately follows `blocks:` before deciding whether to read a literal array or follow an
+ * identifier the same way resolveOptionsIdentifier already does for a setting's `options:`.
+ */
+function parseSectionBlocks(source: string, ctx: ResolveContext): BlockSchema[] {
+  const keyMatch = source.match(/(?:^|\n)[ \t]*blocks:[ \t]*/);
+  if (!keyMatch || keyMatch.index === undefined) return [];
+  const valueStart = keyMatch.index + keyMatch[0].length;
+  const rest = source.slice(valueStart);
+
+  if (rest[0] === "[") {
+    const end = findMatchingBracket(rest, 0, "[", "]");
+    return parseThemeBlocks(rest.slice(1, end), ctx);
+  }
+
+  const identifierMatch = rest.match(/^([A-Za-z_$][\w$]*)/);
+  const identifier = identifierMatch?.[1];
+  if (!identifier) return [];
+  const block = findExportedArrayBlock(identifier, ctx.path, ctx.files);
+  return block ? parseThemeBlocks(block, ctx) : [];
 }
 
 function getRootSectionSource(source: string) {
@@ -213,11 +240,15 @@ function parseThemeBlocks(source: string | undefined, ctx?: ResolveContext): Blo
   if (!source) return [];
   return getObjectLiterals(source)
     .filter((chunk) => matchStringProperty(chunk, "type") && matchStringProperty(chunk, "name") && chunk.includes("settings"))
-    .map((chunk) => ({
-      type: matchStringProperty(chunk, "type") ?? "block",
-      name: matchStringProperty(chunk, "name") ?? "Block",
-      settings: parseThemeSettings(getArrayBlock(chunk, "settings"), ctx).map((setting) => ({ ...setting, group: "Block" })),
-    }));
+    .map((chunk) => {
+      const group = matchStringProperty(chunk, "group");
+      return {
+        type: matchStringProperty(chunk, "type") ?? "block",
+        name: matchStringProperty(chunk, "name") ?? "Block",
+        settings: parseThemeSettings(getArrayBlock(chunk, "settings"), ctx).map((setting) => ({ ...setting, group: "Block" })),
+        ...(group === "custom" ? { group: "custom" as const } : {}),
+      };
+    });
 }
 
 function sortSectionsByThemeConfig(sections: SectionSchema[], config: string | undefined) {
@@ -266,17 +297,88 @@ function parseDefaultBlocks(source: string): Array<{ type: string; settings: Rec
     }));
 }
 
-function parseSettingsObject(source: string | undefined) {
+/**
+ * Depth-0 comma split (also treating [], {}, () as nesting, and skipping quotes/comments like
+ * findMatchingBracket does) — used to split a settings object's own top-level `key: value` pairs,
+ * and an array literal's own top-level elements, without splitting inside a nested value.
+ */
+function splitTopLevelEntries(source: string): string[] {
+  const entries: string[] = [];
+  let depth = 0;
+  let quote: string | null = null;
+  let start = 0;
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index];
+    const next = source[index + 1];
+    const previous = source[index - 1];
+    if (quote) {
+      if (char === quote && previous !== "\\") quote = null;
+      continue;
+    }
+    if (char === "/" && next === "/") {
+      const lineEnd = source.indexOf("\n", index);
+      index = lineEnd === -1 ? source.length - 1 : lineEnd;
+      continue;
+    }
+    if (char === "/" && next === "*") {
+      const commentEnd = source.indexOf("*/", index + 2);
+      index = commentEnd === -1 ? source.length - 1 : commentEnd + 1;
+      continue;
+    }
+    if (char === "\"" || char === "'" || char === "`") {
+      quote = char;
+      continue;
+    }
+    if (char === "[" || char === "{" || char === "(") depth += 1;
+    else if (char === "]" || char === "}" || char === ")") depth -= 1;
+    else if (char === "," && depth === 0) {
+      entries.push(source.slice(start, index));
+      start = index + 1;
+    }
+  }
+  const last = source.slice(start);
+  if (last.trim()) entries.push(last);
+  return entries.map((entry) => entry.trim()).filter(Boolean);
+}
+
+/**
+ * Parses one JS-literal value — string/number/boolean/array/object — recursing into nested
+ * arrays and objects (e.g. a footer's `links: [{ label, href, children: [...] }, ...]`, which the
+ * old primitive-only regex silently dropped). A non-literal expression (a function call, a spread,
+ * an identifier) falls back to its raw trimmed text, matching this file's existing conservative
+ * handling of anything it can't confidently evaluate.
+ */
+function parseLiteralValue(raw: string): unknown {
+  const value = raw.trim();
+  if (!value) return undefined;
+  if (value === "true") return true;
+  if (value === "false") return false;
+  if (/^-?[0-9]+(\.[0-9]+)?$/.test(value)) return Number(value);
+  if (value[0] === "\"" || value[0] === "'" || value[0] === "`") {
+    return matchQuotedValue(value, 0) ?? value.replace(/^["'`]|["'`]$/g, "");
+  }
+  if (value[0] === "[") {
+    const end = findMatchingBracket(value, 0, "[", "]");
+    return splitTopLevelEntries(value.slice(1, end)).map((entry) => parseLiteralValue(entry));
+  }
+  if (value[0] === "{") {
+    const end = findMatchingBracket(value, 0, "{", "}");
+    return parseSettingsObject(value.slice(1, end));
+  }
+  return value;
+}
+
+function parseSettingsObject(source: string | undefined): Record<string, unknown> {
   if (!source) return {};
-  return Object.fromEntries(
-    [...source.matchAll(/([A-Za-z0-9_]+):\s*(true|false|[0-9.]+|["']([\s\S]*?)["'])/g)].map((match) => {
-      const value = match[2] ?? "";
-      if (value === "true") return [match[1] ?? "", true];
-      if (value === "false") return [match[1] ?? "", false];
-      if (/^[0-9.]+$/.test(value)) return [match[1] ?? "", Number(value)];
-      return [match[1] ?? "", value.replace(/^["']|["']$/g, "")];
-    }),
-  );
+  const result: Record<string, unknown> = {};
+  for (const entry of splitTopLevelEntries(source)) {
+    const match = entry.match(/^["']?([A-Za-z0-9_-]+)["']?\s*:\s*([\s\S]*)$/);
+    const key = match?.[1];
+    const rawValue = match?.[2];
+    if (!key || rawValue === undefined) continue;
+    result[key] = parseLiteralValue(rawValue);
+  }
+  return result;
 }
 
 function getArrayBlock(source: string, key: string) {

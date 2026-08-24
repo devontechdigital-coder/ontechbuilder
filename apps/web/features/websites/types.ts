@@ -158,6 +158,42 @@ export interface FormListSummary {
   };
 }
 
+export const LEAD_STATUSES = ["NEW", "OPEN", "QUALIFIED", "MEETING_BOOKED", "FOLLOW_UP", "CLOSED"] as const;
+export type LeadStatus = (typeof LEAD_STATUSES)[number];
+
+export interface LeadSummary {
+  id: string;
+  tenantId: string;
+  formId: string;
+  data: Record<string, unknown>;
+  status: LeadStatus;
+  mailSent: boolean;
+  mailError: string | null;
+  createdAt: string;
+  updatedAt: string;
+  form: { id: string; name: string; slug: string };
+}
+
+export interface LeadStats {
+  total: number;
+  totalChangePct: number;
+  newToday: number;
+  newTodayChangePct: number;
+  inProgress: number;
+  inProgressChangePct: number;
+  meetingsBooked: number;
+  meetingsBookedChangePct: number;
+}
+
+export interface LeadListSummary {
+  data: LeadSummary[];
+  total: number;
+  page: number;
+  pageSize: number;
+  stats: LeadStats;
+  forms: Array<{ id: string; name: string }>;
+}
+
 export interface PageListSummary {
   data: PageSummary[];
   counts: {

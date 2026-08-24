@@ -24,6 +24,7 @@ import { CustomizerOutline } from "./customizer/section-tree";
 import { CustomizerInspector } from "./customizer/inspector";
 import { IconAction } from "./customizer/preview-renderer";
 import { isThemeFrameMessage, postToFrame, THEME_FRAME_ACTION, THEME_FRAME_READY, THEME_FRAME_UPDATE } from "./customizer/frame-protocol";
+import { expandFormShortcodes } from "./customizer/shortcodes";
 import {
   createBlock,
   createSectionInstance,
@@ -42,7 +43,7 @@ import {
   setNestedValue,
 } from "./customizer/state";
 import { resolveThemeRenderer } from "./customizer/theme-renderer";
-import type { CustomizerPageOption, SectionGroupKey, SectionInstance, SelectedItem, Viewport } from "./customizer/types";
+import type { CustomizerPageOption, SectionGroupKey, SectionGroups, SectionInstance, SelectedItem, Viewport } from "./customizer/types";
 import { useHistoryState } from "./customizer/use-history-state";
 import type { PageSummary, ThemeDraftSummary, ThemeInstallationSummary, WebsiteSummary } from "./types";
 
@@ -50,6 +51,9 @@ interface MeResponse {
   user: SafeUser;
   activeTenant: ActiveTenant | null;
 }
+
+/** The URL a shortcode-expanded form's own action should post to — same convention as lib/api.ts. */
+const publicApiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
 
 export function ThemeCustomizerPage({
   websiteId,
@@ -79,6 +83,7 @@ export function ThemeCustomizerPage({
   const [publishing, setPublishing] = useState(false);
   const canvasFrameRef = useRef<HTMLIFrameElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
+  const shortcodeCacheRef = useRef<Map<string, string>>(new Map());
   /** Tracks the last `initialPageId` this component synced to, so a change in that prop (navigating from one page's builder link to another's, which Next.js re-renders in place rather than remounting) forces the switcher — and the actual content being edited — to follow, instead of staying stuck on whichever page loaded first. */
   const syncedInitialPageIdRef = useRef<string | undefined>(undefined);
   /**
@@ -447,21 +452,33 @@ export function ThemeCustomizerPage({
 
   useEffect(() => {
     if (!canvasFrameNonce || !website) return;
-    postToFrame(canvasFrameRef.current?.contentWindow, {
-      type: THEME_FRAME_UPDATE,
-      payload: {
-        groups,
-        sectionSchemas,
-        page: selectedPage,
-        templateId,
-        settings,
-        selected,
-        websiteName: website.name,
-        editable: true,
-        templateSupportsSections: templateScope.supportsSections,
-        sidebarMinimized,
-      },
-    });
+    let cancelled = false;
+
+    void (async () => {
+      // Cached by formId across every re-run (typing elsewhere on the page re-triggers this
+      // effect too) so an already-resolved shortcode isn't re-fetched on every unrelated edit.
+      const expandedGroups = (await expandFormShortcodes(groups, publicApiBaseUrl, shortcodeCacheRef.current)) as SectionGroups;
+      if (cancelled) return;
+      postToFrame(canvasFrameRef.current?.contentWindow, {
+        type: THEME_FRAME_UPDATE,
+        payload: {
+          groups: expandedGroups,
+          sectionSchemas,
+          page: selectedPage,
+          templateId,
+          settings,
+          selected,
+          websiteName: website.name,
+          editable: true,
+          templateSupportsSections: templateScope.supportsSections,
+          sidebarMinimized,
+        },
+      });
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [canvasFrameNonce, groups, sectionSchemas, selected, selectedPage, settings, sidebarMinimized, templateId, templateScope, website]);
 
   // Expanding the sidebar makes the floating panel redundant — its content is

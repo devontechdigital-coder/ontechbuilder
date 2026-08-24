@@ -592,6 +592,7 @@ model FormSubmission {
   mailSent  Boolean    @default(false)
   mailError String?
   createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   form   Form   @relation(fields: [formId], references: [id], onDelete: Cascade)

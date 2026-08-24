@@ -230,7 +230,7 @@ function SectionGroupList({
             </div>
             {expanded && schema?.blocks?.length ? (
               <BlockList
-                blockSchema={schema.blocks[0]!}
+                blockSchemas={schema.blocks}
                 blocks={section.blocks}
                 maxBlocks={schema.maxBlocks}
                 onAddBlock={(blockType) => onAddBlock(section.id, blockType)}
@@ -252,7 +252,7 @@ function SectionGroupList({
 }
 
 function BlockList({
-  blockSchema,
+  blockSchemas,
   blocks,
   maxBlocks,
   onAddBlock,
@@ -264,7 +264,7 @@ function BlockList({
   selected,
   nestableBlockTypes,
 }: {
-  blockSchema: NonNullable<SectionSchema["blocks"]>[number];
+  blockSchemas: NonNullable<SectionSchema["blocks"]>;
   blocks: SectionInstance["blocks"];
   maxBlocks: number | undefined;
   onAddBlock: (blockType?: string) => void;
@@ -349,16 +349,123 @@ function BlockList({
           <RowMenu onDelete={() => onDeleteBlock(block.id)} onDuplicate={() => onDuplicateBlock(block.id)} compact />
         </div>
       ))}
+      {blockSchemas.length > 1 ? (
+        <AddBlockButton blockSchemas={blockSchemas} atLimit={atLimit} onAdd={onAddBlock} />
+      ) : (
+        <button
+          type="button"
+          disabled={atLimit}
+          onClick={() => onAddBlock(blockSchemas[0]?.type)}
+          className="flex items-center gap-1.5 rounded-md px-1 py-1.5 text-left text-[12px] font-medium text-info transition-colors hover:bg-info/10 disabled:cursor-not-allowed disabled:text-muted-foreground disabled:hover:bg-transparent"
+        >
+          <Plus className="size-3.5" />
+          Add block
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * A section whose schema offers more than one block type (e.g. ontech-theme-zip's CustomSection,
+ * whose `blocks` is its whole 15-item customBlockLibrary) previously had no way to add anything
+ * but the first type in that list — "+ Add block" always passed blockSchemas[0]. This mirrors
+ * AddSectionButton's popup (search + icon grid) so every block type is actually reachable.
+ */
+function AddBlockButton({
+  blockSchemas,
+  atLimit,
+  onAdd,
+}: {
+  blockSchemas: NonNullable<SectionSchema["blocks"]>;
+  atLimit: boolean;
+  onAdd: (blockType?: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+
+  const presentGroups = useMemo(() => new Set(blockSchemas.map((schema) => schema.group ?? "default")), [blockSchemas]);
+  const showTabs = presentGroups.has("default") && presentGroups.has("custom");
+  const [activeGroup, setActiveGroup] = useState<"default" | "custom">(presentGroups.has("default") ? "default" : "custom");
+
+  const filtered = useMemo(() => {
+    const term = query.trim().toLowerCase();
+    const byGroup = showTabs ? blockSchemas.filter((schema) => (schema.group ?? "default") === activeGroup) : blockSchemas;
+    return term ? byGroup.filter((schema) => schema.name.toLowerCase().includes(term)) : byGroup;
+  }, [blockSchemas, query, showTabs, activeGroup]);
+
+  function handleAdd(blockType: string) {
+    onAdd(blockType);
+    setOpen(false);
+    setQuery("");
+  }
+
+  return (
+    <>
       <button
         type="button"
         disabled={atLimit}
-        onClick={() => onAddBlock(blockSchema.type)}
+        onClick={() => setOpen(true)}
         className="flex items-center gap-1.5 rounded-md px-1 py-1.5 text-left text-[12px] font-medium text-info transition-colors hover:bg-info/10 disabled:cursor-not-allowed disabled:text-muted-foreground disabled:hover:bg-transparent"
       >
         <Plus className="size-3.5" />
         Add block
       </button>
-    </div>
+      <Modal open={open} title="Add block" description="Pick a block type to add to this section." onClose={() => setOpen(false)} className="max-w-2xl">
+        <div className="grid gap-4 p-5">
+          {showTabs ? (
+            <div className="inline-flex w-fit gap-1 rounded-lg border bg-surface-secondary/50 p-1">
+              <button
+                type="button"
+                onClick={() => setActiveGroup("default")}
+                className={cn(
+                  "rounded-md px-3 py-1.5 text-[12.5px] font-semibold transition-colors",
+                  activeGroup === "default" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-surface",
+                )}
+              >
+                Default
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveGroup("custom")}
+                className={cn(
+                  "rounded-md px-3 py-1.5 text-[12.5px] font-semibold transition-colors",
+                  activeGroup === "custom" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-surface",
+                )}
+              >
+                Custom
+              </button>
+            </div>
+          ) : null}
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input autoFocus placeholder="Search block types" value={query} onChange={(event) => setQuery(event.target.value)} className="pl-8" />
+          </div>
+          {filtered.length ? (
+            <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+              {filtered.map((schema) => {
+                const Icon = sectionIcon({ id: schema.type, name: schema.name });
+                return (
+                  <button
+                    key={schema.type}
+                    type="button"
+                    onClick={() => handleAdd(schema.type)}
+                    className="flex flex-col items-start gap-2.5 rounded-lg border bg-surface p-3 text-left transition-colors hover:border-info/40 hover:bg-info/5"
+                  >
+                    <span className="grid size-9 shrink-0 place-items-center rounded-md bg-info/10 text-info">
+                      <Icon className="size-4.5" />
+                    </span>
+                    <span className="min-w-0 text-[12.5px] font-medium leading-tight text-foreground">{schema.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="py-6 text-center text-[12.5px] text-muted-foreground">No block types match "{query}".</p>
+          )}
+        </div>
+      </Modal>
+    </>
   );
 }
 

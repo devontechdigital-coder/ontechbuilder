@@ -3,6 +3,8 @@ import { headers } from "next/headers";
 import type { Metadata } from "next";
 import { resolvePageTemplateId } from "../lib/theme-engine/resolve-template";
 import type { RenderedThemePage, RenderThemePageInput } from "../lib/theme-engine/render";
+import { expandFormShortcodes } from "../lib/theme-engine/shortcodes";
+import { ThemeClientMount } from "./theme-client-mount";
 
 interface PublicSiteResponse {
   hostname: string;
@@ -100,10 +102,15 @@ const notFoundPage: NonNullable<PublicSiteResponse["page"]> = {
 async function renderThemedPage(page: NonNullable<PublicSiteResponse["page"]>, themeEngine: NonNullable<PublicSiteResponse["themeEngine"]>) {
   try {
     const templateId = resolvePageTemplateId({ slug: page.slug, templateId: page.templateId });
+    const internalApiBaseUrl = process.env.API_BASE_URL ?? "http://localhost:4000";
+    // The URL a VISITOR'S browser posts to — must be publicly reachable, unlike internalApiBaseUrl
+    // above (server-to-server only). Same convention apps/web's lib/api.ts uses.
+    const publicApiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
+    const expandedSettings = (await expandFormShortcodes(themeEngine.settings, internalApiBaseUrl, publicApiBaseUrl)) as Record<string, unknown>;
     const input: RenderThemePageInput = {
       files: themeEngine.files,
       storedManifest: themeEngine.manifest,
-      customizerSettings: themeEngine.settings,
+      customizerSettings: expandedSettings,
       templateId,
       pageKey: page.id,
       pageTitle: page.title,
@@ -127,8 +134,8 @@ async function renderThemedPage(page: NonNullable<PublicSiteResponse["page"]>, t
     return (
       <>
         <style dangerouslySetInnerHTML={{ __html: rendered.css }} />
-        {/* Theme output is our own server-rendered React tree (renderToStaticMarkup), not raw user input — React already escaped every dynamic value during that render pass. */}
-        <div dangerouslySetInnerHTML={{ __html: rendered.html }} />
+        {/* Server markup for fast paint/crawlers; ThemeClientMount re-runs the same build client-side and swaps in a live root so section JS (an FAQ accordion, a mobile nav toggle, ...) actually works. */}
+        <ThemeClientMount input={input} html={rendered.html} />
       </>
     );
   } catch (error) {

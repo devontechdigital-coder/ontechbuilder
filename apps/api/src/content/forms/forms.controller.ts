@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Inject, Param, Patch, Post, Query, Req, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Inject, Param, Patch, Post, Query, Req, Res, UseGuards } from "@nestjs/common";
+import type { Request, Response } from "express";
 import { MembershipRole } from "../../core/database/database.js";
 import { AuthGuard } from "../../identity/auth/auth.guard.js";
 import { getActiveTenant, getAuthenticatedUser } from "../../identity/auth/auth-context.js";
@@ -112,8 +113,37 @@ export class FormsController {
 export class PublicFormsController {
   constructor(@Inject(FormsService) private readonly forms: FormsService) {}
 
+  /** Public-safe form shape (name + fields, no mailSettings) — what a shortcode-embedded form renders from. */
+  @Get(":formId")
+  getPublicForm(@Param("formId") formId: string) {
+    return this.forms.getPublicForm(formId);
+  }
+
+  /**
+   * Handles both a fetch-based submission (a theme's own ContactForm-style section, which reads
+   * back the JSON result) and a plain native `<form action=... method="post">` (the shortcode-
+   * embedded form, which has no JS to intercept the response) — detected by Content-Type, since
+   * a native form post is always urlencoded/multipart, never application/json. A native post gets
+   * redirected back to the referring page with a `#lead-form-thanks-{formId}` hash instead of a
+   * raw JSON body, which the shortcode's own generated markup shows/hides via CSS `:target` — no
+   * JS required either way.
+   */
   @Post(":formId/submit")
-  submitForm(@Param("formId") formId: string, @Body() body: unknown) {
-    return this.forms.submitForm(formId, body);
+  async submitForm(
+    @Param("formId") formId: string,
+    @Body() body: unknown,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const result = await this.forms.submitForm(formId, body);
+    const contentType = request.headers["content-type"] ?? "";
+    const isNativeFormPost = contentType.includes("application/x-www-form-urlencoded") || contentType.includes("multipart/form-data");
+    if (isNativeFormPost) {
+      const referer = request.headers.referer;
+      const base = referer ? referer.split("#")[0] : "/";
+      response.redirect(303, `${base}#lead-form-thanks-${formId}`);
+      return;
+    }
+    return result;
   }
 }

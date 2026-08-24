@@ -8,6 +8,7 @@ export {
   ContentTypeStatus,
   DomainStatus,
   DomainVerificationStatus,
+  LeadStatus,
   MediaStatus,
   MediaAccess,
   MembershipRole,

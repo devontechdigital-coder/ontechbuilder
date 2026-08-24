@@ -46,6 +46,7 @@ const navGroups = [
       { label: "Blogs", href: "blogs", icon: BookOpenText },
       { label: "Blog Categories", href: "blogs/categories", icon: Folder },
       { label: "Forms", href: "forms", icon: ClipboardList },
+      { label: "Leads", href: "leads", icon: Users },
       { label: "Themes", href: "themes", icon: Palette },
       { label: "Domains", href: "domains", icon: Database },
       { label: "Settings", href: "settings", icon: Settings },
@@ -56,7 +57,6 @@ const globalNavGroups = navGroups.filter((group) => group.label !== "Content");
 const websiteNavGroup = navGroups.find((group) => group.label === "Content");
 
 const comingSoonItems = [
-  { label: "Leads", icon: Users },
   { label: "Analytics", icon: BarChart3 },
   { label: "Media", icon: Image },
 ];

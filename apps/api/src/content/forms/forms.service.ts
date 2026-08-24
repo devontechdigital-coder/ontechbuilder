@@ -327,6 +327,24 @@ export class FormsService {
   }
 
   /**
+   * Public entry point — no auth. Returns only what a visitor's browser needs to render the
+   * form itself (name + field definitions) — never mailSettings, which can carry an internal
+   * notification address.
+   */
+  async getPublicForm(formId: string) {
+    const form = await this.prisma.form.findFirst({
+      where: { id: formId, status: { not: PageStatus.ARCHIVED } },
+      select: { id: true, name: true, fields: true },
+    });
+
+    if (!form) {
+      throw new NotFoundException("Form was not found or is no longer accepting submissions");
+    }
+
+    return form;
+  }
+
+  /**
    * Public entry point — no auth, called by an anonymous visitor's browser POST from the live
    * rendered site. Validates the submission against the form's own field definitions (required-
    * ness, email/url/number shape, select/radio/checkbox membership, quiz answer), stores it
