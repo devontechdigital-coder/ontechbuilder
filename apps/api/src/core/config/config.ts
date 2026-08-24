@@ -79,6 +79,13 @@ const envSchema = z
     SESSION_SECRET: z.string().min(32, "SESSION_SECRET must be at least 32 characters"),
     SESSION_COOKIE_NAME: z.string().min(1).default("stackbuilder_session"),
     SESSION_TTL_DAYS: z.coerce.number().int().min(1).max(30).default(7),
+    /** All optional — form submission notification emails are skipped (not an error) whenever SMTP_HOST is unset. */
+    SMTP_HOST: optionalNonEmptyString,
+    SMTP_PORT: z.coerce.number().int().positive().default(587),
+    SMTP_SECURE: z.coerce.boolean().default(false),
+    SMTP_USER: optionalNonEmptyString,
+    SMTP_PASS: optionalNonEmptyString,
+    SMTP_FROM: optionalEmail,
   })
   .superRefine((value, context) => {
     if (
@@ -113,11 +120,12 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
 
 export function redactConfig(
   config: AppConfig,
-): Omit<AppConfig, "DATABASE_URL" | "GCS_PRIVATE_KEY" | "SESSION_SECRET"> {
+): Omit<AppConfig, "DATABASE_URL" | "GCS_PRIVATE_KEY" | "SESSION_SECRET" | "SMTP_PASS"> {
   const {
     DATABASE_URL: _databaseUrl,
     GCS_PRIVATE_KEY: _gcsPrivateKey,
     SESSION_SECRET: _sessionSecret,
+    SMTP_PASS: _smtpPass,
     ...safeConfig
   } = config;
 

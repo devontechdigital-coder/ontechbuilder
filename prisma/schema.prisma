@@ -60,6 +60,15 @@ enum PageStatus {
   ARCHIVED
 }
 
+enum LeadStatus {
+  NEW
+  OPEN
+  QUALIFIED
+  MEETING_BOOKED
+  FOLLOW_UP
+  CLOSED
+}
+
 enum PageKind {
   PAGE
   BLOG
@@ -197,6 +206,8 @@ model Tenant {
   themePublishRecords ThemePublishRecord[]
   auditLogs      AuditLog[]
   activeSessions Session[]
+  forms          Form[]
+  formSubmissions FormSubmission[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
@@ -258,6 +269,7 @@ model Website {
   contentEntries ContentEntry[]
   themes         WebsiteTheme[]
   themeInstallations ThemeInstallation[]
+  forms          Form[]
 
   @@unique([id, tenantId])
   @@unique([tenantId, slug])
@@ -544,6 +556,48 @@ model BlogCategory {
   @@unique([id, tenantId])
   @@unique([websiteId, slug])
   @@index([tenantId, websiteId])
+  @@index([tenantId, status])
+}
+
+model Form {
+  id        String     @id @default(uuid()) @db.Uuid
+  tenantId  String     @db.Uuid
+  websiteId String     @db.Uuid
+  name      String
+  slug      String
+  status    PageStatus @default(DRAFT)
+  /** Ordered array of field definitions — see apps/api/src/content/forms/forms.service.ts's FormField shape. */
+  fields    Json       @default("[]")
+  /** { enabled, to, from, additionalHeaders, subject, bodyHtml } — the notification email sent on each submission. */
+  mailSettings Json    @default("{}")
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  tenant      Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  website     Website          @relation(fields: [websiteId], references: [id], onDelete: Cascade)
+  submissions FormSubmission[]
+
+  @@unique([id, tenantId])
+  @@unique([websiteId, slug])
+  @@index([tenantId, websiteId])
+  @@index([tenantId, status])
+}
+
+model FormSubmission {
+  id        String     @id @default(uuid()) @db.Uuid
+  tenantId  String     @db.Uuid
+  formId    String     @db.Uuid
+  data      Json
+  status    LeadStatus @default(NEW)
+  mailSent  Boolean    @default(false)
+  mailError String?
+  createdAt DateTime   @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  form   Form   @relation(fields: [formId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, formId])
+  @@index([formId, createdAt])
   @@index([tenantId, status])
 }
 

@@ -5,6 +5,7 @@ import {
   BookOpenText,
   ChevronsUpDown,
   CircleGauge,
+  ClipboardList,
   Database,
   Folder,
   Image,
@@ -43,6 +44,8 @@ const navGroups = [
     items: [
       { label: "Pages", href: "pages", icon: LayoutList },
       { label: "Blogs", href: "blogs", icon: BookOpenText },
+      { label: "Blog Categories", href: "blogs/categories", icon: Folder },
+      { label: "Forms", href: "forms", icon: ClipboardList },
       { label: "Themes", href: "themes", icon: Palette },
       { label: "Domains", href: "domains", icon: Database },
       { label: "Settings", href: "settings", icon: Settings },
@@ -53,7 +56,6 @@ const globalNavGroups = navGroups.filter((group) => group.label !== "Content");
 const websiteNavGroup = navGroups.find((group) => group.label === "Content");
 
 const comingSoonItems = [
-  { label: "Forms", icon: Folder },
   { label: "Leads", icon: Users },
   { label: "Analytics", icon: BarChart3 },
   { label: "Media", icon: Image },

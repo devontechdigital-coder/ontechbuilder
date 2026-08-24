@@ -22,6 +22,8 @@ const config: AppConfig = {
   SESSION_SECRET: "a-secret-with-at-least-thirty-two-chars",
   SESSION_COOKIE_NAME: "stackbuilder_session",
   SESSION_TTL_DAYS: 7,
+  SMTP_PORT: 587,
+  SMTP_SECURE: false,
 };
 
 describe("SessionService", () => {

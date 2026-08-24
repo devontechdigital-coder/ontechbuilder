@@ -68,6 +68,96 @@ export interface BlogCategoryListSummary {
   };
 }
 
+export const FORM_FIELD_TYPES = [
+  "text",
+  "email",
+  "url",
+  "tel",
+  "number",
+  "date",
+  "time",
+  "datetime-local",
+  "month",
+  "week",
+  "password",
+  "search",
+  "textarea",
+  "select",
+  "checkbox",
+  "radio",
+  "acceptance",
+  "quiz",
+  "file",
+  "hidden",
+  "range",
+  "submit",
+  "reset",
+  "button",
+] as const;
+
+export type FormFieldType = (typeof FORM_FIELD_TYPES)[number];
+
+export interface FormFieldOption {
+  label: string;
+  value: string;
+}
+
+export interface FormField {
+  id: string;
+  type: FormFieldType;
+  label: string;
+  name: string;
+  placeholder?: string;
+  required?: boolean;
+  defaultValue?: string;
+  helpText?: string;
+  options?: FormFieldOption[];
+  min?: number | undefined;
+  max?: number | undefined;
+  step?: number | undefined;
+  minLength?: number | undefined;
+  maxLength?: number | undefined;
+  pattern?: string;
+  acceptedFileTypes?: string;
+  quizAnswer?: string;
+  rows?: number | undefined;
+  row?: number | undefined;
+  column?: number | undefined;
+  width?: number | undefined;
+}
+
+export interface FormMailSettings {
+  enabled: boolean;
+  to: string;
+  from: string;
+  additionalHeaders: string;
+  subject: string;
+  bodyHtml: string;
+}
+
+export interface FormSummary {
+  id: string;
+  tenantId: string;
+  websiteId: string;
+  name: string;
+  slug: string;
+  status: "DRAFT" | "PUBLISHED" | "ARCHIVED";
+  fields: FormField[];
+  mailSettings: FormMailSettings;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface FormListSummary {
+  data: FormSummary[];
+  counts: {
+    all: number;
+    DRAFT: number;
+    PUBLISHED: number;
+    ARCHIVED: number;
+  };
+}
+
 export interface PageListSummary {
   data: PageSummary[];
   counts: {
