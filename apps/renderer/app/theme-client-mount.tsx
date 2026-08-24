@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { buildThemedTree, type RenderThemePageInput } from "../lib/theme-engine/build-tree";
@@ -19,10 +20,11 @@ import { buildThemedTree, type RenderThemePageInput } from "../lib/theme-engine/
  * (ambiguous which content should win), so the static div is only rendered until the live root
  * takes over, at which point it's removed and the (by-then-populated) container replaces it.
  */
-export function ThemeClientMount({ input, html }: { input: RenderThemePageInput; html: string }) {
+export function ThemeClientMount({ input, html, requestedPath }: { input: RenderThemePageInput; html: string; requestedPath: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<Root | null>(null);
   const [live, setLive] = useState(false);
+  const router = useRouter();
 
   useEffect(() => {
     const container = containerRef.current;
@@ -44,6 +46,35 @@ export function ThemeClientMount({ input, html }: { input: RenderThemePageInput;
       setLive(false);
     };
   }, [input, html]);
+
+  // Every route this app exposes (a real custom domain's root, or an admin-hosted
+  // "/site/preview/{websiteId}" / "/preview/{websiteId}" prefix) is reachable at some prefix in
+  // front of the theme's own site-relative path. The theme's own <a href="/about"> links are
+  // authored assuming they sit at the domain ROOT (correct for a real custom domain, wrong for a
+  // prefixed preview route — a plain root-relative href there drops the prefix and lands on a
+  // completely different app). Comparing the browser's actual pathname against requestedPath (the
+  // exact site-relative path the server just resolved this page from) recovers that prefix
+  // precisely, for whichever scheme is in play, without hardcoding the known preview paths.
+  useEffect(() => {
+    function handleClick(event: MouseEvent) {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const anchor = (event.target as HTMLElement | null)?.closest("a");
+      if (!anchor) return;
+      if (anchor.target && anchor.target !== "_self") return;
+      if (anchor.hasAttribute("download")) return;
+      const href = anchor.getAttribute("href");
+      if (!href || !href.startsWith("/") || href.startsWith("//")) return;
+
+      const pathname = window.location.pathname;
+      const prefix = requestedPath === "/" ? (pathname.endsWith("/") ? pathname.slice(0, -1) : pathname) : pathname.endsWith(requestedPath) ? pathname.slice(0, pathname.length - requestedPath.length) : "";
+
+      event.preventDefault();
+      router.push(`${prefix}${href}`);
+    }
+
+    document.addEventListener("click", handleClick);
+    return () => document.removeEventListener("click", handleClick);
+  }, [requestedPath, router]);
 
   return (
     <>

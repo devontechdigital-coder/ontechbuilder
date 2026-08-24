@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDownRight, ArrowUpRight, Calendar, Download, Loader2, Mail, Phone, Trash2, TrendingUp, Users } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, Calendar, ClipboardList, Download, Loader2, Mail, Phone, Trash2, TrendingUp, Users } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { use, useEffect, useState } from "react";
 import toast from "react-hot-toast";
@@ -12,7 +12,16 @@ import { Pagination, Table, Tabs } from "../../components/ui/navigation";
 import { ConfirmDialog, Sheet } from "../../components/ui/overlay";
 import { apiRequest } from "../../lib/api";
 import type { ActiveTenant, SafeUser, TenantSummary } from "../auth/types";
-import type { LeadListSummary, LeadStats, LeadStatus, LeadSummary, WebsiteSummary } from "./types";
+import type { FormField, FormSummary, LeadListSummary, LeadStats, LeadStatus, LeadSummary, WebsiteSummary } from "./types";
+
+const NON_DATA_FIELD_TYPES = new Set(["hidden", "submit", "reset", "button"]);
+
+function formatFieldValue(value: unknown): string {
+  if (value === undefined || value === null || value === "") return "—";
+  if (Array.isArray(value)) return value.length ? value.join(", ") : "—";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  return String(value);
+}
 
 interface MeResponse {
   user: SafeUser;
@@ -100,6 +109,27 @@ export function LeadsWorkspace({ params }: { params: Promise<{ id: string }> }) 
   const [confirm, setConfirm] = useState<{ title: string; description: string; action: () => void } | null>(null);
   const [detailLead, setDetailLead] = useState<LeadSummary | null>(null);
   const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null);
+  const [selectedFormFields, setSelectedFormFields] = useState<FormField[]>([]);
+
+  // A specific form is a known, fixed shape — show its real fields as table columns instead of
+  // best-effort name/email guessing. "All forms" mixes arbitrary shapes, so it falls back to cards.
+  useEffect(() => {
+    if (formFilter === "all") {
+      setSelectedFormFields([]);
+      return;
+    }
+    let cancelled = false;
+    apiRequest<FormSummary>(`/forms/${formFilter}`)
+      .then((form) => {
+        if (!cancelled) setSelectedFormFields(form.fields.filter((field) => !NON_DATA_FIELD_TYPES.has(field.type)));
+      })
+      .catch(() => {
+        if (!cancelled) setSelectedFormFields([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [formFilter]);
 
   async function loadLeads(activeTenant: ActiveTenant) {
     setIsLoading(true);
@@ -301,33 +331,52 @@ export function LeadsWorkspace({ params }: { params: Promise<{ id: string }> }) 
         <Tabs tabs={statusTabs} value={statusFilter} onChange={setStatusFilter} />
 
         {isLoading ? (
-          <LeadsTableSkeleton />
+          formFilter === "all" ? <LeadsCardSkeleton /> : <LeadsTableSkeleton />
         ) : leads.length ? (
           <>
-            <Table headers={["Lead", "Form", "Status", "Submitted", "Action"]}>
-              {leads.map((lead) => {
-                const display = extractLeadDisplay(lead.data);
-                return (
+            {formFilter === "all" ? (
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                {leads.map((lead) => (
+                  <LeadCard
+                    key={lead.id}
+                    lead={lead}
+                    isStatusUpdating={statusUpdatingId === lead.id}
+                    onOpenDetail={() => setDetailLead(lead)}
+                    onChangeStatus={(status) => void changeStatus(lead, status)}
+                    onDelete={() =>
+                      setConfirm({
+                        title: "Delete lead",
+                        description: "Permanently delete this lead? This cannot be undone.",
+                        action: () => void deleteLead(lead),
+                      })
+                    }
+                  />
+                ))}
+              </div>
+            ) : (
+              <Table headers={[...selectedFormFields.map((field) => field.label), "Status", "Submitted", "Action"]}>
+                {leads.map((lead) => (
                   <tr key={lead.id}>
-                    <td>
-                      <button type="button" className="flex items-center gap-2.5 text-left" onClick={() => setDetailLead(lead)}>
-                        <span className="grid size-8 shrink-0 place-items-center rounded-full bg-accent/10 text-[12px] font-semibold uppercase text-accent">
-                          {display.name.slice(0, 1)}
-                        </span>
-                        <span className="min-w-0">
-                          <span className="block truncate text-[12.5px] font-semibold text-foreground">{display.name}</span>
-                          {display.email ? <span className="block truncate text-[11px] text-muted-foreground">{display.email}</span> : null}
-                        </span>
-                      </button>
-                    </td>
-                    <td className="text-muted-foreground">{lead.form.name}</td>
+                    {selectedFormFields.map((field, index) =>
+                      index === 0 ? (
+                        <td key={field.id}>
+                          <button type="button" className="text-left font-semibold text-foreground hover:underline" onClick={() => setDetailLead(lead)}>
+                            {formatFieldValue(lead.data[field.name])}
+                          </button>
+                        </td>
+                      ) : (
+                        <td key={field.id} className="text-muted-foreground">
+                          {formatFieldValue(lead.data[field.name])}
+                        </td>
+                      ),
+                    )}
                     <td>
                       <div className="flex items-center gap-1.5">
                         <Badge tone={STATUS_META[lead.status].tone}>{STATUS_META[lead.status].label}</Badge>
                         {statusUpdatingId === lead.id ? <Loader2 className="size-3.5 animate-spin text-muted-foreground" /> : null}
                       </div>
                       <Select
-                        aria-label={`Change status for ${display.name}`}
+                        aria-label="Change status"
                         className="mt-1.5 h-7 text-[11px]"
                         value={lead.status}
                         disabled={statusUpdatingId === lead.id}
@@ -343,25 +392,21 @@ export function LeadsWorkspace({ params }: { params: Promise<{ id: string }> }) 
                     <td className="text-muted-foreground">{relativeTime(lead.createdAt)}</td>
                     <td>
                       <div className="flex items-center justify-end gap-1">
-                        <IconButton label={`Call ${display.name}`} disabled={!display.phone} onClick={() => display.phone && window.open(`tel:${display.phone}`)}>
-                          <Phone className="size-4" />
-                        </IconButton>
-                        <IconButton label={`Email ${display.name}`} disabled={!display.email} onClick={() => display.email && window.open(`mailto:${display.email}`)}>
-                          <Mail className="size-4" />
-                        </IconButton>
                         <IconButton
-                          label={`Delete lead ${display.name}`}
+                          label="Delete lead"
                           className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                          onClick={() => setConfirm({ title: "Delete lead", description: `Permanently delete this lead from ${display.name}? This cannot be undone.`, action: () => void deleteLead(lead) })}
+                          onClick={() =>
+                            setConfirm({ title: "Delete lead", description: "Permanently delete this lead? This cannot be undone.", action: () => void deleteLead(lead) })
+                          }
                         >
                           <Trash2 className="size-4" />
                         </IconButton>
                       </div>
                     </td>
                   </tr>
-                );
-              })}
-            </Table>
+                ))}
+              </Table>
+            )}
             <Pagination
               hasPrevious={pageIndex > 1}
               hasNext={pageIndex < pageCount}
@@ -455,6 +500,87 @@ function LeadsTableSkeleton() {
       {Array.from({ length: 6 }).map((_, index) => (
         <Skeleton key={`lead-skeleton-${index}`} className="h-12 rounded-lg" />
       ))}
+    </div>
+  );
+}
+
+function LeadsCardSkeleton() {
+  return (
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+      {Array.from({ length: 6 }).map((_, index) => (
+        <Skeleton key={`lead-card-skeleton-${index}`} className="h-[168px] rounded-xl" />
+      ))}
+    </div>
+  );
+}
+
+/** "All forms" mixes arbitrary field shapes, so each lead is a self-contained card (best-effort name/email/phone) rather than a table row that can't assume any common columns. */
+function LeadCard({
+  lead,
+  isStatusUpdating,
+  onOpenDetail,
+  onChangeStatus,
+  onDelete,
+}: {
+  lead: LeadSummary;
+  isStatusUpdating: boolean;
+  onOpenDetail: () => void;
+  onChangeStatus: (status: LeadStatus) => void;
+  onDelete: () => void;
+}) {
+  const display = extractLeadDisplay(lead.data);
+  const statusMeta = STATUS_META[lead.status];
+
+  return (
+    <div className="group flex flex-col gap-3 rounded-xl border bg-surface p-4 shadow-sm shadow-slate-950/5 transition-all hover:-translate-y-0.5 hover:border-info/30 hover:shadow-md hover:shadow-slate-950/10">
+      <div className="flex items-start justify-between gap-2">
+        <button type="button" className="flex min-w-0 flex-1 items-center gap-2.5 text-left" onClick={onOpenDetail}>
+          <span className="grid size-10 shrink-0 place-items-center rounded-full bg-accent/10 text-[13px] font-semibold uppercase text-accent">
+            {display.name.slice(0, 1)}
+          </span>
+          <span className="min-w-0">
+            <span className="block truncate text-[13.5px] font-semibold text-foreground">{display.name}</span>
+            {display.email ? <span className="block truncate text-[11.5px] text-muted-foreground">{display.email}</span> : null}
+          </span>
+        </button>
+        <Badge tone={statusMeta.tone}>{statusMeta.label}</Badge>
+      </div>
+
+      <div className="flex items-center gap-1.5 text-[11.5px] text-muted-foreground">
+        <ClipboardList className="size-3.5 shrink-0" />
+        <span className="min-w-0 truncate font-medium text-foreground/80">{lead.form.name}</span>
+        <span className="shrink-0 text-muted-foreground/50">·</span>
+        <span className="shrink-0">{relativeTime(lead.createdAt)}</span>
+      </div>
+
+      <div className="flex items-center gap-1.5">
+        <Select
+          aria-label="Change status"
+          className="h-7 flex-1 text-[11px]"
+          value={lead.status}
+          disabled={isStatusUpdating}
+          onChange={(event) => onChangeStatus(event.target.value as LeadStatus)}
+        >
+          {(Object.entries(STATUS_META) as Array<[LeadStatus, (typeof STATUS_META)[LeadStatus]]>).map(([value, meta]) => (
+            <option key={value} value={value}>
+              {meta.label}
+            </option>
+          ))}
+        </Select>
+        {isStatusUpdating ? <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" /> : null}
+      </div>
+
+      <div className="mt-auto flex items-center justify-end gap-1 border-t pt-2.5">
+        <IconButton label={`Call ${display.name}`} disabled={!display.phone} onClick={() => display.phone && window.open(`tel:${display.phone}`)}>
+          <Phone className="size-4" />
+        </IconButton>
+        <IconButton label={`Email ${display.name}`} disabled={!display.email} onClick={() => display.email && window.open(`mailto:${display.email}`)}>
+          <Mail className="size-4" />
+        </IconButton>
+        <IconButton label={`Delete lead ${display.name}`} className="text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={onDelete}>
+          <Trash2 className="size-4" />
+        </IconButton>
+      </div>
     </div>
   );
 }

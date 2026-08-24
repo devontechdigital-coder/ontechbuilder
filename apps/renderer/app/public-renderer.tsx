@@ -33,7 +33,7 @@ interface PublicSiteResponse {
 
 export async function renderPublicPage(path: string) {
   const site = await fetchPublicSite(path);
-  return renderSite(site, { eyebrow: site?.hostname });
+  return renderSite(site, path, { eyebrow: site?.hostname });
 }
 
 export async function publicPageMetadata(path: string): Promise<Metadata> {
@@ -42,14 +42,14 @@ export async function publicPageMetadata(path: string): Promise<Metadata> {
 
 export async function renderPreviewPage(websiteId: string, path: string) {
   const site = await fetchPreviewSite(websiteId, path);
-  return renderSite(site, { eyebrow: "Portal preview" });
+  return renderSite(site, path, { eyebrow: "Portal preview" });
 }
 
 export async function previewPageMetadata(websiteId: string, path: string): Promise<Metadata> {
   return siteMetadata(await fetchPreviewSite(websiteId, path));
 }
 
-async function renderSite(site: PublicSiteResponse | null, options: { eyebrow?: string | undefined }) {
+async function renderSite(site: PublicSiteResponse | null, requestedPath: string, options: { eyebrow?: string | undefined }) {
   if (!site) {
     return <StatusPage title="Site not connected" description="This domain is verified, but no published website is available for this host yet." />;
   }
@@ -59,13 +59,13 @@ async function renderSite(site: PublicSiteResponse | null, options: { eyebrow?: 
   }
 
   if (site.page && site.themeEngine) {
-    const themedMarkup = await renderThemedPage(site.page, site.themeEngine, site.website.id);
+    const themedMarkup = await renderThemedPage(site.page, site.themeEngine, site.website.id, requestedPath);
     if (themedMarkup) return themedMarkup;
   }
 
   if (!site.page) {
     if (site.themeEngine) {
-      const themed404 = await renderThemedPage(notFoundPage, site.themeEngine, site.website.id);
+      const themed404 = await renderThemedPage(notFoundPage, site.themeEngine, site.website.id, requestedPath);
       if (themed404) return themed404;
     }
     return <StatusPage title="Page not found" description="We couldn't find the page you were looking for." />;
@@ -100,7 +100,7 @@ const notFoundPage: NonNullable<PublicSiteResponse["page"]> = {
  * Server Component graph. Falls back to the plain title/summary stub on
  * any failure — a broken theme should never take the whole page down.
  */
-async function renderThemedPage(page: NonNullable<PublicSiteResponse["page"]>, themeEngine: NonNullable<PublicSiteResponse["themeEngine"]>, websiteId: string) {
+async function renderThemedPage(page: NonNullable<PublicSiteResponse["page"]>, themeEngine: NonNullable<PublicSiteResponse["themeEngine"]>, websiteId: string, requestedPath: string) {
   try {
     const templateId = resolvePageTemplateId({ slug: page.slug, templateId: page.templateId });
     const internalApiBaseUrl = process.env.API_BASE_URL ?? "http://localhost:4000";
@@ -136,7 +136,7 @@ async function renderThemedPage(page: NonNullable<PublicSiteResponse["page"]>, t
       <>
         <style dangerouslySetInnerHTML={{ __html: rendered.css }} />
         {/* Server markup for fast paint/crawlers; ThemeClientMount re-runs the same build client-side and swaps in a live root so section JS (an FAQ accordion, a mobile nav toggle, ...) actually works. */}
-        <ThemeClientMount input={input} html={rendered.html} />
+        <ThemeClientMount input={input} html={rendered.html} requestedPath={requestedPath} />
         {page.id !== notFoundPage.id ? <PageViewTracker websiteId={websiteId} pageId={page.id} path={page.slug} /> : null}
       </>
     );
