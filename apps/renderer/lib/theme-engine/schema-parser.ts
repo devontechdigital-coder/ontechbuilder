@@ -135,7 +135,6 @@ function parseSectionSchemaFile(path: string, source: string, files: Record<stri
   const rootSource = getRootSectionSource(source);
   const id = matchStringProperty(rootSource, "id") ?? matchStringProperty(rootSource, "type") ?? kebabCase(folderName);
   const settingsBlock = getArrayBlock(source, "settings");
-  const blocksBlock = getArrayBlock(source, "blocks");
   const maxBlocks = matchNumberProperty(source, "maxBlocks");
   const defaultBlocks = parseDefaultBlocks(source);
   const ctx: ResolveContext = { files, path };
@@ -144,10 +143,38 @@ function parseSectionSchemaFile(path: string, source: string, files: Record<stri
     name: matchStringProperty(rootSource, "name") ?? titleCase(id),
     category: matchStringProperty(rootSource, "category") ?? "Sections",
     settings: parseThemeSettings(settingsBlock, ctx),
-    blocks: parseThemeBlocks(blocksBlock, ctx),
+    blocks: parseSectionBlocks(source, ctx),
     ...(maxBlocks !== undefined ? { maxBlocks } : {}),
     ...(defaultBlocks.length ? { defaultBlocks } : {}),
   };
+}
+
+/**
+ * A section's own `blocks: [...]` is almost always an inline array literal, but a section can
+ * instead reuse a shared library wholesale (`blocks: customBlockLibrary` — see
+ * ontech-theme-zip's CustomSection/schema.ts and config/customBlocks.ts) rather than declare its
+ * own. `getArrayBlock`'s "find the next `[` after the key" approach would then walk straight past
+ * that bare identifier into whatever array happens to come later in the file (here, a totally
+ * unrelated `defaultBlocks: [...]`) and silently return the wrong content — this checks what
+ * immediately follows `blocks:` before deciding whether to read a literal array or follow an
+ * identifier the same way resolveOptionsIdentifier already does for a setting's `options:`.
+ */
+function parseSectionBlocks(source: string, ctx: ResolveContext): BlockSchema[] {
+  const keyMatch = source.match(/(?:^|\n)[ \t]*blocks:[ \t]*/);
+  if (!keyMatch || keyMatch.index === undefined) return [];
+  const valueStart = keyMatch.index + keyMatch[0].length;
+  const rest = source.slice(valueStart);
+
+  if (rest[0] === "[") {
+    const end = findMatchingBracket(rest, 0, "[", "]");
+    return parseThemeBlocks(rest.slice(1, end), ctx);
+  }
+
+  const identifierMatch = rest.match(/^([A-Za-z_$][\w$]*)/);
+  const identifier = identifierMatch?.[1];
+  if (!identifier) return [];
+  const block = findExportedArrayBlock(identifier, ctx.path, ctx.files);
+  return block ? parseThemeBlocks(block, ctx) : [];
 }
 
 function getRootSectionSource(source: string) {
@@ -218,11 +245,15 @@ function parseThemeBlocks(source: string | undefined, ctx?: ResolveContext): Blo
   if (!source) return [];
   return getObjectLiterals(source)
     .filter((chunk) => matchStringProperty(chunk, "type") && matchStringProperty(chunk, "name") && chunk.includes("settings"))
-    .map((chunk) => ({
-      type: matchStringProperty(chunk, "type") ?? "block",
-      name: matchStringProperty(chunk, "name") ?? "Block",
-      settings: parseThemeSettings(getArrayBlock(chunk, "settings"), ctx).map((setting) => ({ ...setting, group: "Block" })),
-    }));
+    .map((chunk) => {
+      const group = matchStringProperty(chunk, "group");
+      return {
+        type: matchStringProperty(chunk, "type") ?? "block",
+        name: matchStringProperty(chunk, "name") ?? "Block",
+        settings: parseThemeSettings(getArrayBlock(chunk, "settings"), ctx).map((setting) => ({ ...setting, group: "Block" })),
+        ...(group === "custom" ? { group: "custom" as const } : {}),
+      };
+    });
 }
 
 function sortSectionsByThemeConfig(sections: SectionSchema[], config: string | undefined) {
