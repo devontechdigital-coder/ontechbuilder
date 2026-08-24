@@ -194,6 +194,24 @@ export interface LeadListSummary {
   forms: Array<{ id: string; name: string }>;
 }
 
+export interface LiveViewData {
+  visitorsRightNow: number;
+  sessionsToday: number;
+  points: Array<{ lat: number; lng: number; label: string }>;
+  sessionsByLocation: Array<{ label: string; count: number }>;
+}
+
+export interface AnalyticsData {
+  totalPageViews: number;
+  totalSessions: number;
+  sessionsChangePct: number;
+  series: Array<{ timestamp: string; pageViews: number; sessions: number }>;
+  sessionsByDevice: Array<{ deviceType: string; count: number }>;
+  topPages: Array<{ path: string; count: number }>;
+  sessionsByLocation: Array<{ label: string; count: number }>;
+  trafficSources: Array<{ label: string; count: number }>;
+}
+
 export interface PageListSummary {
   data: PageSummary[];
   counts: {

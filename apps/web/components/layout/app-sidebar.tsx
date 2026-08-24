@@ -3,20 +3,24 @@
 import {
   BarChart3,
   BookOpenText,
+  ChevronDown,
   ChevronsUpDown,
   CircleGauge,
   ClipboardList,
   Database,
   Folder,
+  Globe2,
   Image,
   LayoutList,
   Palette,
   PanelsTopLeft,
+  Radio,
   Settings,
   Users,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useState } from "react";
 import type { ActiveTenant, SafeUser, TenantSummary } from "../../features/auth/types";
 import {
   Sidebar,
@@ -47,6 +51,15 @@ const navGroups = [
       { label: "Blog Categories", href: "blogs/categories", icon: Folder },
       { label: "Forms", href: "forms", icon: ClipboardList },
       { label: "Leads", href: "leads", icon: Users },
+      {
+        label: "Analytics",
+        href: "analytics",
+        icon: BarChart3,
+        children: [
+          { label: "Live View", href: "analytics/live", icon: Radio },
+          { label: "Analytics", href: "analytics", icon: Globe2 },
+        ],
+      },
       { label: "Themes", href: "themes", icon: Palette },
       { label: "Domains", href: "domains", icon: Database },
       { label: "Settings", href: "settings", icon: Settings },
@@ -56,10 +69,7 @@ const navGroups = [
 const globalNavGroups = navGroups.filter((group) => group.label !== "Content");
 const websiteNavGroup = navGroups.find((group) => group.label === "Content");
 
-const comingSoonItems = [
-  { label: "Analytics", icon: BarChart3 },
-  { label: "Media", icon: Image },
-];
+const comingSoonItems = [{ label: "Media", icon: Image }];
 
 export function AppSidebar({
   user,
@@ -78,6 +88,7 @@ export function AppSidebar({
   const websiteMatch = pathname.match(/^\/websites\/([^/]+)/);
   const websiteBasePath = websiteMatch ? `/websites/${websiteMatch[1]}` : null;
   const isWebsiteOpen = Boolean(websiteBasePath);
+  const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
 
   return (
     <Sidebar>
@@ -142,9 +153,52 @@ export function AppSidebar({
               <SidebarGroupLabel>Content</SidebarGroupLabel>
               <SidebarMenu>
                 {websiteNavGroup?.items.map((item) => {
+                  const Icon = item.icon;
+
+                  if ("children" in item && item.children) {
+                    const childHrefs = item.children.map((child) => `${websiteBasePath}/${child.href}`);
+                    const groupActive = childHrefs.some((href) => pathname.startsWith(href));
+                    const isOpen = openGroups.has(item.label) || groupActive;
+                    return (
+                      <SidebarMenuItem key={`website-${item.label}`}>
+                        <SidebarMenuButton
+                          isActive={groupActive}
+                          onClick={() =>
+                            setOpenGroups((current) => {
+                              const next = new Set(current);
+                              if (next.has(item.label)) next.delete(item.label);
+                              else next.add(item.label);
+                              return next;
+                            })
+                          }
+                        >
+                          <Icon />
+                          <span className="truncate group-data-[sidebar-open=false]/sidebar-wrapper:hidden">{item.label}</span>
+                          <ChevronDown className={`ml-auto size-3.5 shrink-0 transition-transform group-data-[sidebar-open=false]/sidebar-wrapper:hidden ${isOpen ? "rotate-180" : ""}`} />
+                        </SidebarMenuButton>
+                        {isOpen ? (
+                          <div className="ml-4 grid gap-0.5 border-l border-sidebar-border pl-2 pt-0.5 group-data-[sidebar-open=false]/sidebar-wrapper:hidden">
+                            {item.children.map((child) => {
+                              const childHref = `${websiteBasePath}/${child.href}`;
+                              const childActive = pathname.startsWith(childHref);
+                              const ChildIcon = child.icon;
+                              return (
+                                <SidebarMenuButton key={child.href} asChild isActive={childActive} className="h-8 text-[12.5px]">
+                                  <Link href={childHref} title={child.label}>
+                                    <ChildIcon className="size-3.5" />
+                                    <span className="truncate">{child.label}</span>
+                                  </Link>
+                                </SidebarMenuButton>
+                              );
+                            })}
+                          </div>
+                        ) : null}
+                      </SidebarMenuItem>
+                    );
+                  }
+
                   const href = item.href === "pages" ? websiteBasePath ?? "/websites" : `${websiteBasePath}/${item.href}`;
                   const active = item.href === "pages" ? pathname === websiteBasePath : pathname.startsWith(href);
-                  const Icon = item.icon;
                   return (
                     <SidebarMenuItem key={`website-${item.label}`}>
                       <SidebarMenuButton asChild isActive={active}>

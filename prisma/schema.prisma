@@ -208,6 +208,7 @@ model Tenant {
   activeSessions Session[]
   forms          Form[]
   formSubmissions FormSubmission[]
+  pageViews      PageView[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
@@ -270,6 +271,7 @@ model Website {
   themes         WebsiteTheme[]
   themeInstallations ThemeInstallation[]
   forms          Form[]
+  pageViews      PageView[]
 
   @@unique([id, tenantId])
   @@unique([tenantId, slug])
@@ -600,6 +602,36 @@ model FormSubmission {
   @@index([tenantId, formId])
   @@index([formId, createdAt])
   @@index([tenantId, status])
+}
+
+/**
+ * One row per page view, recorded by a small client-side beacon the public renderer fires (see
+ * apps/renderer's page-view tracking). Geo fields are resolved asynchronously after the write
+ * (a free IP-geolocation lookup, non-blocking) — null until that completes, which a burst of very
+ * recent rows may legitimately still be.
+ */
+model PageView {
+  id         String   @id @default(uuid()) @db.Uuid
+  tenantId   String   @db.Uuid
+  websiteId  String   @db.Uuid
+  pageId     String?  @db.Uuid
+  sessionId  String   @db.Uuid
+  path       String
+  referrer   String?
+  deviceType String?
+  country    String?
+  region     String?
+  city       String?
+  latitude   Float?
+  longitude  Float?
+  createdAt  DateTime @default(now())
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  website Website @relation(fields: [websiteId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, websiteId, createdAt])
+  @@index([websiteId, sessionId])
+  @@index([websiteId, createdAt])
 }
 
 model PageVersion {

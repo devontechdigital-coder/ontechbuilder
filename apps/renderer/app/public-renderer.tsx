@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import { resolvePageTemplateId } from "../lib/theme-engine/resolve-template";
 import type { RenderedThemePage, RenderThemePageInput } from "../lib/theme-engine/render";
 import { expandFormShortcodes } from "../lib/theme-engine/shortcodes";
+import { PageViewTracker } from "./page-view-tracker";
 import { ThemeClientMount } from "./theme-client-mount";
 
 interface PublicSiteResponse {
@@ -58,13 +59,13 @@ async function renderSite(site: PublicSiteResponse | null, options: { eyebrow?: 
   }
 
   if (site.page && site.themeEngine) {
-    const themedMarkup = await renderThemedPage(site.page, site.themeEngine);
+    const themedMarkup = await renderThemedPage(site.page, site.themeEngine, site.website.id);
     if (themedMarkup) return themedMarkup;
   }
 
   if (!site.page) {
     if (site.themeEngine) {
-      const themed404 = await renderThemedPage(notFoundPage, site.themeEngine);
+      const themed404 = await renderThemedPage(notFoundPage, site.themeEngine, site.website.id);
       if (themed404) return themed404;
     }
     return <StatusPage title="Page not found" description="We couldn't find the page you were looking for." />;
@@ -99,7 +100,7 @@ const notFoundPage: NonNullable<PublicSiteResponse["page"]> = {
  * Server Component graph. Falls back to the plain title/summary stub on
  * any failure — a broken theme should never take the whole page down.
  */
-async function renderThemedPage(page: NonNullable<PublicSiteResponse["page"]>, themeEngine: NonNullable<PublicSiteResponse["themeEngine"]>) {
+async function renderThemedPage(page: NonNullable<PublicSiteResponse["page"]>, themeEngine: NonNullable<PublicSiteResponse["themeEngine"]>, websiteId: string) {
   try {
     const templateId = resolvePageTemplateId({ slug: page.slug, templateId: page.templateId });
     const internalApiBaseUrl = process.env.API_BASE_URL ?? "http://localhost:4000";
@@ -136,6 +137,7 @@ async function renderThemedPage(page: NonNullable<PublicSiteResponse["page"]>, t
         <style dangerouslySetInnerHTML={{ __html: rendered.css }} />
         {/* Server markup for fast paint/crawlers; ThemeClientMount re-runs the same build client-side and swaps in a live root so section JS (an FAQ accordion, a mobile nav toggle, ...) actually works. */}
         <ThemeClientMount input={input} html={rendered.html} />
+        {page.id !== notFoundPage.id ? <PageViewTracker websiteId={websiteId} pageId={page.id} path={page.slug} /> : null}
       </>
     );
   } catch (error) {
