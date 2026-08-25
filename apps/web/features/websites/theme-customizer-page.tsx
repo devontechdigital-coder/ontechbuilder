@@ -537,7 +537,13 @@ export function ThemeCustomizerPage({
         ) : (
           <aside className="flex min-h-0 flex-col border-r bg-surface">
             <div className="flex items-center justify-end border-b px-2 py-1.5">
-              <IconAction label="Minimize sidebar" onClick={() => setSidebarMinimized(true)}>
+              <IconAction
+                label="Minimize sidebar"
+                onClick={() => {
+                  setSidebarMinimized(true);
+                  if (selected.kind !== "theme") setSectionEditPanelOpen(true);
+                }}
+              >
                 <PanelLeftClose className="size-4" />
               </IconAction>
             </div>

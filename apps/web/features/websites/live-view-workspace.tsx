@@ -1,8 +1,9 @@
 "use client";
 
 import createGlobe from "cobe";
+import type { Globe } from "cobe";
 import { Radio, Users } from "lucide-react";
-import { use, useEffect, useMemo, useRef, useState } from "react";
+import { use, useEffect, useRef, useState } from "react";
 import { DashboardShell } from "../../components/layout/dashboard-shell";
 import { Alert, Card, LoadingState, SectionHeader } from "../../components/ui/display";
 import { apiRequest } from "../../lib/api";
@@ -15,6 +16,8 @@ interface MeResponse {
 }
 
 const POLL_INTERVAL_MS = 8000;
+const GLOBE_BASE_COLOR: [number, number, number] = [1, 1, 1];
+const GLOBE_GLOW_COLOR: [number, number, number] = [1, 1, 1];
 const MARKER_COLOR: [number, number, number] = [251 / 255, 100 / 255, 21 / 255];
 
 function getCachedDashboardShell(): { me: MeResponse; tenants: TenantSummary[] } | null {
@@ -37,7 +40,8 @@ export function LiveViewWorkspace({ params }: { params: Promise<{ id: string }> 
   const [website, setWebsite] = useState<WebsiteSummary | null>(null);
   const [data, setData] = useState<LiveViewData | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [globeFrame, setGlobeFrame] = useState<HTMLDivElement | null>(null);
+  const [canvasEl, setCanvasEl] = useState<HTMLCanvasElement | null>(null);
   const markersRef = useRef<Array<{ location: [number, number]; size: number }>>([]);
 
   async function loadLiveView(activeTenant: ActiveTenant) {
@@ -74,14 +78,12 @@ export function LiveViewWorkspace({ params }: { params: Promise<{ id: string }> 
       }
     }
     void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   useEffect(() => {
     if (!me?.activeTenant) return;
     const interval = setInterval(() => void loadLiveView(me.activeTenant!), POLL_INTERVAL_MS);
     return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [me?.activeTenant]);
 
   useEffect(() => {
@@ -92,47 +94,79 @@ export function LiveViewWorkspace({ params }: { params: Promise<{ id: string }> 
   }, [data?.points]);
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!canvasEl || !globeFrame) return;
+    const canvasElement = canvasEl;
+    const frameElement = globeFrame;
 
-    let width = canvas.offsetWidth;
-    const globe = createGlobe(canvas, {
-      devicePixelRatio: 2,
-      width: width * 2,
-      height: width * 2,
-      phi: 0,
-      theta: 0.3,
-      dark: 0,
-      diffuse: 1.2,
-      mapSamples: 16000,
-      mapBrightness: 6,
-      baseColor: [1, 1, 1],
-      markerColor: MARKER_COLOR,
-      glowColor: [1, 1, 1],
-      markers: markersRef.current,
-    });
-
-    const onResize = () => {
-      width = canvas.offsetWidth;
-      globe.update({ width: width * 2, height: width * 2 });
-    };
-    window.addEventListener("resize", onResize);
-
+    let globe: Globe | null = null;
+    let size = 0;
     let phi = 0;
-    let animationFrame: number;
+    let animationFrame = 0;
+
+    function getFrameSize() {
+      return Math.floor(Math.min(frameElement.clientWidth, frameElement.clientHeight));
+    }
+
+    function applySize(nextSize: number) {
+      if (!nextSize) return;
+      size = nextSize;
+      const renderSize = size * 2;
+      canvasElement.width = renderSize;
+      canvasElement.height = renderSize;
+      globe?.update({ width: renderSize, height: renderSize });
+    }
+
+    function ensureGlobe() {
+      if (globe || !size) return;
+      globe = createGlobe(canvasElement, {
+        devicePixelRatio: 1,
+        width: size * 2,
+        height: size * 2,
+        phi: 0,
+        theta: 0.3,
+        dark: 0,
+        diffuse: 1.2,
+        mapSamples: 16000,
+        mapBrightness: 6,
+        baseColor: GLOBE_BASE_COLOR,
+        markerColor: MARKER_COLOR,
+        glowColor: GLOBE_GLOW_COLOR,
+        markers: markersRef.current,
+      });
+    }
+
     function render() {
-      phi += 0.004;
-      globe.update({ phi, markers: markersRef.current });
+      const nextSize = getFrameSize();
+      if (nextSize && nextSize !== size) {
+        applySize(nextSize);
+      }
+      ensureGlobe();
+      if (globe) {
+        phi += 0.004;
+        globe.update({ phi, markers: markersRef.current });
+      }
       animationFrame = requestAnimationFrame(render);
     }
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      const nextSize = Math.floor(Math.min(entry.contentRect.width, entry.contentRect.height));
+      applySize(nextSize);
+      ensureGlobe();
+    });
+
+    observer.observe(frameElement);
+    applySize(getFrameSize());
+    ensureGlobe();
     animationFrame = requestAnimationFrame(render);
 
     return () => {
       cancelAnimationFrame(animationFrame);
-      globe.destroy();
-      window.removeEventListener("resize", onResize);
+      observer.disconnect();
+      globe?.destroy();
     };
-  }, []);
+  }, [canvasEl, globeFrame]);
 
   async function switchTenant(tenantId: string) {
     const response = await apiRequest<{ activeTenant: ActiveTenant }>("/tenants/switch", {
@@ -227,9 +261,9 @@ export function LiveViewWorkspace({ params }: { params: Promise<{ id: string }> 
           </Card>
         </div>
 
-        <Card className="grid min-h-[520px] place-items-center overflow-hidden !p-0">
-          <div className="relative aspect-square w-[480px] max-w-full">
-            <canvas ref={canvasRef} className="absolute inset-0 size-full" />
+        <Card className="grid min-h-[520px] place-items-center overflow-hidden bg-[#f8fafc] !p-0">
+          <div ref={setGlobeFrame} className="relative aspect-square w-[480px] max-w-full">
+            <canvas ref={setCanvasEl} className="absolute inset-0 size-full" />
           </div>
         </Card>
       </div>

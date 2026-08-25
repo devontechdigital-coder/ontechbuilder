@@ -206,14 +206,29 @@ export function WebsiteWorkspace({
       pageSearchParams.set("blogCategoryId", blogCategoryFilter);
     }
 
-    const [websiteResponse, domainResponse, pagesResponse, themesResponse, catalogResponse] = await Promise.all([
+    // The theme draft (needed for the Template field's options) has to be requested with a
+    // themeId, which only themesResponse can supply — so it's fetched first, on its own, and
+    // everything else (including the draft itself) runs in one batch after. Previously the draft
+    // fetch was a further sequential await AFTER the batch that already set `pages` — the page
+    // list was interactive well before templateOptions existed, so opening Edit soon after
+    // load showed a form with no Template field at all. Folding it into the same batch that
+    // produces `pages` means both land in the same render, closing that window.
+    const themesResponse = await apiRequest<ThemeInstallationSummary[]>(`/tenants/${activeTenant.id}/websites/${id}/themes`);
+    const currentThemeId = isPageListSection
+      ? (themesResponse.find((theme) => theme.status === "PUBLISHED")?.id ?? themesResponse[0]?.id ?? null)
+      : null;
+
+    const [websiteResponse, domainResponse, pagesResponse, catalogResponse, blogCategoriesResponse, draftResponse] = await Promise.all([
       apiRequest<WebsiteSummary>(`/tenants/${activeTenant.id}/websites/${id}`),
       apiRequest<PageResult<DomainSummary>>(
         `/tenants/${activeTenant.id}/websites/${id}/domains?limit=${domainPageSize}${domainCursor ? `&cursor=${encodeURIComponent(domainCursor)}` : ""}`,
       ),
       apiRequest<PageListSummary>(`${listEndpoint}?${pageSearchParams.toString()}`),
-      apiRequest<ThemeInstallationSummary[]>(`/tenants/${activeTenant.id}/websites/${id}/themes`),
       apiRequest<ThemeDefinitionSummary[]>(`/tenants/${activeTenant.id}/websites/${id}/themes/catalog`),
+      section === "blogs" ? apiRequest<BlogCategorySummary[]>(`/websites/${id}/blog-categories`) : Promise.resolve<BlogCategorySummary[]>([]),
+      currentThemeId
+        ? apiRequest<ThemeDraftSummary>(`/tenants/${activeTenant.id}/websites/${id}/themes/${currentThemeId}/draft`)
+        : Promise.resolve(null),
     ]);
 
     setWebsite(websiteResponse);
@@ -224,23 +239,8 @@ export function WebsiteWorkspace({
     setPageCounts(pagesResponse.counts);
     setThemes(themesResponse);
     setThemeCatalog(catalogResponse);
-    if (section === "blogs") {
-      setBlogCategories(await apiRequest<BlogCategorySummary[]>(`/websites/${id}/blog-categories`));
-    } else {
-      setBlogCategories([]);
-    }
-
-    if (isPageListSection) {
-      const currentThemeId = themesResponse.find((theme) => theme.status === "PUBLISHED")?.id ?? themesResponse[0]?.id ?? null;
-      if (currentThemeId) {
-        const draftResponse = await apiRequest<ThemeDraftSummary>(
-          `/tenants/${activeTenant.id}/websites/${id}/themes/${currentThemeId}/draft`,
-        );
-        setTemplateOptions(getTemplateDefinitions(draftResponse));
-      } else {
-        setTemplateOptions([]);
-      }
-    }
+    setBlogCategories(blogCategoriesResponse);
+    setTemplateOptions(getTemplateDefinitions(draftResponse));
   }
 
   useEffect(() => {
