@@ -102,6 +102,8 @@ export function LiveViewWorkspace({ params }: { params: Promise<{ id: string }> 
     let size = 0;
     let phi = 0;
     let animationFrame = 0;
+    let dragStartX: number | null = null;
+    let dragStartPhi = 0;
 
     function getFrameSize() {
       return Math.floor(Math.min(frameElement.clientWidth, frameElement.clientHeight));
@@ -142,7 +144,9 @@ export function LiveViewWorkspace({ params }: { params: Promise<{ id: string }> 
       }
       ensureGlobe();
       if (globe) {
-        phi += 0.004;
+        // Auto-rotation pauses while the user is actively dragging (dragStartX set) —
+        // otherwise every drag delta would fight the constant auto-increment.
+        if (dragStartX === null) phi += 0.004;
         globe.update({ phi, markers: markersRef.current });
       }
       animationFrame = requestAnimationFrame(render);
@@ -156,6 +160,29 @@ export function LiveViewWorkspace({ params }: { params: Promise<{ id: string }> 
       ensureGlobe();
     });
 
+    function onPointerDown(event: PointerEvent) {
+      dragStartX = event.clientX;
+      dragStartPhi = phi;
+      canvasElement.style.cursor = "grabbing";
+    }
+
+    function onPointerMove(event: PointerEvent) {
+      if (dragStartX === null) return;
+      phi = dragStartPhi + (event.clientX - dragStartX) / 200;
+    }
+
+    function stopDragging() {
+      dragStartX = null;
+      canvasElement.style.cursor = "grab";
+    }
+
+    canvasElement.style.cursor = "grab";
+    canvasElement.style.touchAction = "none";
+    canvasElement.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", stopDragging);
+    window.addEventListener("pointercancel", stopDragging);
+
     observer.observe(frameElement);
     applySize(getFrameSize());
     ensureGlobe();
@@ -164,6 +191,10 @@ export function LiveViewWorkspace({ params }: { params: Promise<{ id: string }> 
     return () => {
       cancelAnimationFrame(animationFrame);
       observer.disconnect();
+      canvasElement.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", stopDragging);
+      window.removeEventListener("pointercancel", stopDragging);
       globe?.destroy();
     };
   }, [canvasEl, globeFrame]);
@@ -213,7 +244,7 @@ export function LiveViewWorkspace({ params }: { params: Promise<{ id: string }> 
     >
       {error ? <Alert>{error}</Alert> : null}
 
-      <div className="grid gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
+      <div className="grid items-start gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
         <div className="grid content-start gap-4">
           <Card>
             <div className="flex items-center gap-2">
