@@ -228,11 +228,9 @@ export function LiveViewWorkspace({ params }: { params: Promise<{ id: string }> 
         </div>
 
         <Card className="grid min-h-[520px] place-items-center overflow-hidden !p-0">
-          <canvas
-            ref={canvasRef}
-            className="aspect-square w-full max-w-[480px]"
-            style={{ contain: "layout paint size" }}
-          />
+          <div className="relative aspect-square w-[480px] max-w-full">
+            <canvas ref={canvasRef} className="absolute inset-0 size-full" />
+          </div>
         </Card>
       </div>
     </DashboardShell>
