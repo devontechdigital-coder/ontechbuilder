@@ -1,16 +1,13 @@
 "use client";
 
+import createGlobe from "cobe";
 import { Radio, Users } from "lucide-react";
-import dynamic from "next/dynamic";
 import { use, useEffect, useMemo, useRef, useState } from "react";
 import { DashboardShell } from "../../components/layout/dashboard-shell";
 import { Alert, Card, LoadingState, SectionHeader } from "../../components/ui/display";
 import { apiRequest } from "../../lib/api";
 import type { ActiveTenant, SafeUser, TenantSummary } from "../auth/types";
-import type { GlobeMethods } from "react-globe.gl";
 import type { LiveViewData, WebsiteSummary } from "./types";
-
-const Globe = dynamic(() => import("react-globe.gl"), { ssr: false });
 
 interface MeResponse {
   user: SafeUser;
@@ -18,14 +15,7 @@ interface MeResponse {
 }
 
 const POLL_INTERVAL_MS = 8000;
-/**
- * Real NASA/Natural-Earth-derived daytime map imagery (self-hosted, copied from three-globe's own
- * MIT-licensed example assets — the standard textures used across virtually every globe.gl demo)
- * — replaces the earlier abstract hex-dot outline, which didn't read as a real map and made
- * visitor positions hard to place against actual geography.
- */
-const GLOBE_IMAGE_URL = "/globe/earth-day.jpg";
-const GLOBE_BUMP_URL = "/globe/earth-topology.png";
+const MARKER_COLOR: [number, number, number] = [251 / 255, 100 / 255, 21 / 255];
 
 function getCachedDashboardShell(): { me: MeResponse; tenants: TenantSummary[] } | null {
   if (typeof window === "undefined") return null;
@@ -47,9 +37,8 @@ export function LiveViewWorkspace({ params }: { params: Promise<{ id: string }> 
   const [website, setWebsite] = useState<WebsiteSummary | null>(null);
   const [data, setData] = useState<LiveViewData | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const globeRef = useRef<GlobeMethods | undefined>(undefined);
-  const [globeSize, setGlobeSize] = useState({ width: 800, height: 600 });
-  const containerRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const markersRef = useRef<Array<{ location: [number, number]; size: number }>>([]);
 
   async function loadLiveView(activeTenant: ActiveTenant) {
     try {
@@ -96,14 +85,53 @@ export function LiveViewWorkspace({ params }: { params: Promise<{ id: string }> 
   }, [me?.activeTenant]);
 
   useEffect(() => {
-    function updateSize() {
-      if (!containerRef.current) return;
-      const rect = containerRef.current.getBoundingClientRect();
-      setGlobeSize({ width: Math.max(320, rect.width), height: Math.max(320, rect.height) });
+    markersRef.current = (data?.points ?? []).map((point) => ({
+      location: [point.lat, point.lng] as [number, number],
+      size: 0.06,
+    }));
+  }, [data?.points]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    let width = canvas.offsetWidth;
+    const globe = createGlobe(canvas, {
+      devicePixelRatio: 2,
+      width: width * 2,
+      height: width * 2,
+      phi: 0,
+      theta: 0.3,
+      dark: 0,
+      diffuse: 1.2,
+      mapSamples: 16000,
+      mapBrightness: 6,
+      baseColor: [1, 1, 1],
+      markerColor: MARKER_COLOR,
+      glowColor: [1, 1, 1],
+      markers: markersRef.current,
+    });
+
+    const onResize = () => {
+      width = canvas.offsetWidth;
+      globe.update({ width: width * 2, height: width * 2 });
+    };
+    window.addEventListener("resize", onResize);
+
+    let phi = 0;
+    let animationFrame: number;
+    function render() {
+      phi += 0.004;
+      globe.update({ phi, markers: markersRef.current });
+      animationFrame = requestAnimationFrame(render);
     }
-    updateSize();
-    window.addEventListener("resize", updateSize);
-    return () => window.removeEventListener("resize", updateSize);
+    animationFrame = requestAnimationFrame(render);
+
+    return () => {
+      cancelAnimationFrame(animationFrame);
+      globe.destroy();
+      window.removeEventListener("resize", onResize);
+    };
   }, []);
 
   async function switchTenant(tenantId: string) {
@@ -114,8 +142,6 @@ export function LiveViewWorkspace({ params }: { params: Promise<{ id: string }> 
     setMe((current) => (current ? { ...current, activeTenant: response.activeTenant } : current));
     await loadLiveView(response.activeTenant);
   }
-
-  const points = useMemo(() => (data?.points ?? []).map((point) => ({ ...point, size: 0.4 })), [data?.points]);
 
   if (!me || !website) {
     if (hasLoadedDashboardShell && me) {
@@ -201,34 +227,12 @@ export function LiveViewWorkspace({ params }: { params: Promise<{ id: string }> 
           </Card>
         </div>
 
-        <Card className="min-h-[520px] overflow-hidden !p-0">
-          <div ref={containerRef} className="relative h-[520px] w-full">
-            <Globe
-              ref={globeRef}
-              width={globeSize.width}
-              height={globeSize.height}
-              backgroundColor="rgba(0,0,0,0)"
-              globeImageUrl={GLOBE_IMAGE_URL}
-              bumpImageUrl={GLOBE_BUMP_URL}
-              showAtmosphere
-              atmosphereColor="hsl(214, 84%, 70%)"
-              atmosphereAltitude={0.2}
-              pointsData={points}
-              pointLat="lat"
-              pointLng="lng"
-              pointLabel="label"
-              pointColor={() => "#22c55e"}
-              pointAltitude={0.02}
-              pointRadius="size"
-              onGlobeReady={() => {
-                const controls = globeRef.current?.controls();
-                if (controls) {
-                  controls.autoRotate = true;
-                  controls.autoRotateSpeed = 0.6;
-                }
-              }}
-            />
-          </div>
+        <Card className="grid min-h-[520px] place-items-center overflow-hidden !p-0">
+          <canvas
+            ref={canvasRef}
+            className="aspect-square w-full max-w-[480px]"
+            style={{ contain: "layout paint size" }}
+          />
         </Card>
       </div>
     </DashboardShell>
