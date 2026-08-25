@@ -1,6 +1,7 @@
 "use client";
 
-import { ArrowDownRight, ArrowUpRight, Eye, Globe2, TrendingUp } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, Eye, ExternalLink, Globe2, TrendingUp } from "lucide-react";
+import Link from "next/link";
 import { use, useEffect, useState } from "react";
 import {
   Area,
@@ -17,9 +18,11 @@ import {
 } from "recharts";
 import { DashboardShell } from "../../components/layout/dashboard-shell";
 import { Alert, Card, LoadingState, SectionHeader, Skeleton } from "../../components/ui/display";
+import { Field, Input } from "../../components/ui/form";
 import { Tabs } from "../../components/ui/navigation";
 import { apiRequest } from "../../lib/api";
 import type { ActiveTenant, SafeUser, TenantSummary } from "../auth/types";
+import { buildRangeParams, daysAgoIso, RANGE_TABS, todayIso } from "./analytics-range";
 import type { AnalyticsData, WebsiteSummary } from "./types";
 
 interface MeResponse {
@@ -53,16 +56,9 @@ const DEVICE_COLORS: Record<string, string> = {
   tablet: "hsl(var(--destructive))",
 };
 
-const RANGE_TABS = [
-  { value: "7", label: "7 days" },
-  { value: "14", label: "14 days" },
-  { value: "30", label: "30 days" },
-  { value: "90", label: "90 days" },
-];
-
-function formatBucketLabel(timestamp: string, days: number) {
+function formatBucketLabel(timestamp: string, spanDays: number) {
   const date = new Date(timestamp);
-  if (days <= 2) return date.toLocaleTimeString(undefined, { hour: "numeric" });
+  if (spanDays <= 2) return date.toLocaleTimeString(undefined, { hour: "numeric" });
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
@@ -73,17 +69,22 @@ export function AnalyticsWorkspace({ params }: { params: Promise<{ id: string }>
   const [tenants, setTenants] = useState<TenantSummary[]>([]);
   const [website, setWebsite] = useState<WebsiteSummary | null>(null);
   const [data, setData] = useState<AnalyticsData | null>(null);
-  const [rangeDays, setRangeDays] = useState("7");
+  const [rangeMode, setRangeMode] = useState("7");
+  const [customFrom, setCustomFrom] = useState(() => daysAgoIso(30));
+  const [customTo, setCustomTo] = useState(() => todayIso());
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const customRangeReady = rangeMode !== "custom" || Boolean(customFrom && customTo && customFrom <= customTo);
+
   async function loadAnalytics(activeTenant: ActiveTenant) {
+    if (!customRangeReady) return;
     setIsLoading(true);
     setError(null);
     try {
       const websiteResponse = await apiRequest<WebsiteSummary>(`/tenants/${activeTenant.id}/websites/${id}`);
       setWebsite(websiteResponse);
-      const response = await apiRequest<AnalyticsData>(`/websites/${id}/analytics?days=${rangeDays}`);
+      const response = await apiRequest<AnalyticsData>(`/websites/${id}/analytics?${buildRangeParams(rangeMode, customFrom, customTo).toString()}`);
       setData(response);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Analytics failed to load");
@@ -120,7 +121,7 @@ export function AnalyticsWorkspace({ params }: { params: Promise<{ id: string }>
     if (!me?.activeTenant) return;
     void loadAnalytics(me.activeTenant);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rangeDays, me?.activeTenant]);
+  }, [rangeMode, customFrom, customTo, me?.activeTenant]);
 
   async function switchTenant(tenantId: string) {
     const response = await apiRequest<{ activeTenant: ActiveTenant }>("/tenants/switch", {
@@ -131,11 +132,18 @@ export function AnalyticsWorkspace({ params }: { params: Promise<{ id: string }>
     await loadAnalytics(response.activeTenant);
   }
 
+  const activeSpanDays =
+    rangeMode === "custom" && customFrom && customTo
+      ? Math.max(1, (new Date(customTo).getTime() - new Date(customFrom).getTime()) / (24 * 60 * 60 * 1000))
+      : Number(rangeMode);
+
   const chartData = (data?.series ?? []).map((point) => ({
-    label: formatBucketLabel(point.timestamp, Number(rangeDays)),
+    label: formatBucketLabel(point.timestamp, activeSpanDays),
     pageViews: point.pageViews,
     sessions: point.sessions,
   }));
+
+  const rangeParams = buildRangeParams(rangeMode, customFrom, customTo).toString();
 
   const deviceData = (data?.sessionsByDevice ?? []).map((row) => ({
     name: row.deviceType.charAt(0).toUpperCase() + row.deviceType.slice(1),
@@ -143,10 +151,22 @@ export function AnalyticsWorkspace({ params }: { params: Promise<{ id: string }>
     color: DEVICE_COLORS[row.deviceType] ?? "hsl(var(--muted-foreground))",
   }));
 
-  if (!hasLoadedDashboardShell && (!me || !website)) {
-    return <LoadingState label="Loading analytics" />;
-  }
   if (!me || !website) {
+    if (hasLoadedDashboardShell && me) {
+      return (
+        <DashboardShell
+          title="Loading analytics"
+          eyebrow="Website"
+          description="Loading the latest analytics data."
+          me={me}
+          tenants={tenants}
+          breadcrumbs={[{ label: "Workspace", href: "/" }, { label: "Websites", href: "/websites" }]}
+          onTenantChange={switchTenant}
+        >
+          <LoadingState label="Loading analytics" contentOnly />
+        </DashboardShell>
+      );
+    }
     return <LoadingState label="Loading analytics" contentOnly={hasLoadedDashboardShell} />;
   }
 
@@ -167,7 +187,20 @@ export function AnalyticsWorkspace({ params }: { params: Promise<{ id: string }>
     >
       {error ? <Alert>{error}</Alert> : null}
 
-      <Tabs tabs={RANGE_TABS} value={rangeDays} onChange={setRangeDays} />
+      <div className="grid gap-3 sm:flex sm:items-end sm:justify-between">
+        <Tabs tabs={RANGE_TABS} value={rangeMode} onChange={setRangeMode} />
+        {rangeMode === "custom" ? (
+          <div className="flex flex-wrap items-end gap-2">
+            <Field label="Start date">
+              <Input type="date" value={customFrom} max={customTo || undefined} onChange={(event) => setCustomFrom(event.target.value)} />
+            </Field>
+            <Field label="End date">
+              <Input type="date" value={customTo} min={customFrom || undefined} max={todayIso()} onChange={(event) => setCustomTo(event.target.value)} />
+            </Field>
+          </div>
+        ) : null}
+      </div>
+      {rangeMode === "custom" && !customRangeReady ? <Alert tone="info">Pick a start and end date to load this range.</Alert> : null}
 
       {isLoading || !data ? (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -184,7 +217,21 @@ export function AnalyticsWorkspace({ params }: { params: Promise<{ id: string }>
           </div>
 
           <Card>
-            <SectionHeader title="Traffic over time" description="Page views and sessions for the selected range." />
+            <SectionHeader
+              title="Traffic over time"
+              description="Page views and sessions for the selected range."
+              actions={
+                <Link
+                  href={`/websites/${website.id}/analytics/traffic?${rangeParams}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 text-[11.5px] font-semibold text-info hover:underline"
+                >
+                  View all
+                  <ExternalLink className="size-3" />
+                </Link>
+              }
+            />
             {chartData.length ? (
               <ResponsiveContainer width="100%" height={280}>
                 <AreaChart data={chartData} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
@@ -248,8 +295,16 @@ export function AnalyticsWorkspace({ params }: { params: Promise<{ id: string }>
             </Card>
 
             <div className="grid gap-4 sm:grid-cols-2">
-              <BarListCard title="Top pages" rows={data.topPages.map((row) => ({ label: row.path, count: row.count }))} />
-              <BarListCard title="Traffic sources" rows={data.trafficSources.map((row) => ({ label: row.label, count: row.count }))} />
+              <BarListCard
+                title="Top pages"
+                rows={data.topPages.map((row) => ({ label: row.path, count: row.count }))}
+                viewAllHref={`/websites/${website.id}/analytics/pages?${rangeParams}`}
+              />
+              <BarListCard
+                title="Traffic sources"
+                rows={data.trafficSources.map((row) => ({ label: row.label, count: row.count }))}
+                viewAllHref={`/websites/${website.id}/analytics/sources?${rangeParams}`}
+              />
               <BarListCard title="Sessions by location" rows={data.sessionsByLocation.map((row) => ({ label: row.label, count: row.count }))} className="sm:col-span-2" />
             </div>
           </div>
@@ -297,11 +352,36 @@ function StatTile({
   );
 }
 
-function BarListCard({ title, rows, className }: { title: string; rows: Array<{ label: string; count: number }>; className?: string }) {
+function BarListCard({
+  title,
+  rows,
+  className,
+  viewAllHref,
+}: {
+  title: string;
+  rows: Array<{ label: string; count: number }>;
+  className?: string;
+  viewAllHref?: string;
+}) {
   const max = Math.max(1, ...rows.map((row) => row.count));
   return (
     <Card {...(className ? { className } : {})}>
-      <SectionHeader title={title} />
+      <SectionHeader
+        title={title}
+        actions={
+          viewAllHref ? (
+            <Link
+              href={viewAllHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 text-[11.5px] font-semibold text-info hover:underline"
+            >
+              View all
+              <ExternalLink className="size-3" />
+            </Link>
+          ) : undefined
+        }
+      />
       {rows.length ? (
         <div className="grid gap-2.5">
           {rows.map((row) => (

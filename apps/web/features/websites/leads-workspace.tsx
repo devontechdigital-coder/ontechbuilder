@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDownRight, ArrowUpRight, Calendar, ClipboardList, Download, Loader2, Mail, Phone, Trash2, TrendingUp, Users } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, Calendar, ClipboardList, Download, Eye, Loader2, Mail, Phone, Trash2, TrendingUp, Users } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { use, useEffect, useState } from "react";
 import toast from "react-hot-toast";
@@ -250,11 +250,22 @@ export function LeadsWorkspace({ params }: { params: Promise<{ id: string }> }) 
     ...(Object.entries(STATUS_META) as Array<[LeadStatus, (typeof STATUS_META)[LeadStatus]]>).map(([value, meta]) => ({ value, label: meta.label })),
   ];
 
-  if (!hasLoadedDashboardShell && (!me || !website)) {
-    return <LoadingState label="Loading leads" />;
-  }
-
   if (!me || !website) {
+    if (hasLoadedDashboardShell && me) {
+      return (
+        <DashboardShell
+          title="Loading leads"
+          eyebrow="Website"
+          description="Loading the latest lead data."
+          me={me}
+          tenants={tenants}
+          breadcrumbs={[{ label: "Workspace", href: "/" }, { label: "Websites", href: "/websites" }]}
+          onTenantChange={switchTenant}
+        >
+          <LoadingState label="Loading leads" contentOnly />
+        </DashboardShell>
+      );
+    }
     return <LoadingState label="Loading leads" contentOnly={hasLoadedDashboardShell} />;
   }
 
@@ -391,7 +402,11 @@ export function LeadsWorkspace({ params }: { params: Promise<{ id: string }> }) 
                     </td>
                     <td className="text-muted-foreground">{relativeTime(lead.createdAt)}</td>
                     <td>
-                      <div className="flex items-center justify-end gap-1">
+                      <div className="flex items-center justify-end gap-1.5">
+                        <Button type="button" size="sm" variant="secondary" onClick={() => setDetailLead(lead)}>
+                          <Eye className="size-4" />
+                          View details
+                        </Button>
                         <IconButton
                           label="Delete lead"
                           className="text-destructive hover:bg-destructive/10 hover:text-destructive"
@@ -570,16 +585,22 @@ function LeadCard({
         {isStatusUpdating ? <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" /> : null}
       </div>
 
-      <div className="mt-auto flex items-center justify-end gap-1 border-t pt-2.5">
-        <IconButton label={`Call ${display.name}`} disabled={!display.phone} onClick={() => display.phone && window.open(`tel:${display.phone}`)}>
-          <Phone className="size-4" />
-        </IconButton>
-        <IconButton label={`Email ${display.name}`} disabled={!display.email} onClick={() => display.email && window.open(`mailto:${display.email}`)}>
-          <Mail className="size-4" />
-        </IconButton>
-        <IconButton label={`Delete lead ${display.name}`} className="text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={onDelete}>
-          <Trash2 className="size-4" />
-        </IconButton>
+      <div className="mt-auto flex items-center justify-between gap-1 border-t pt-2.5">
+        <Button type="button" size="sm" variant="secondary" onClick={onOpenDetail}>
+          <Eye className="size-4" />
+          View details
+        </Button>
+        <div className="flex items-center gap-1">
+          <IconButton label={`Call ${display.name}`} disabled={!display.phone} onClick={() => display.phone && window.open(`tel:${display.phone}`)}>
+            <Phone className="size-4" />
+          </IconButton>
+          <IconButton label={`Email ${display.name}`} disabled={!display.email} onClick={() => display.email && window.open(`mailto:${display.email}`)}>
+            <Mail className="size-4" />
+          </IconButton>
+          <IconButton label={`Delete lead ${display.name}`} className="text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={onDelete}>
+            <Trash2 className="size-4" />
+          </IconButton>
+        </div>
       </div>
     </div>
   );

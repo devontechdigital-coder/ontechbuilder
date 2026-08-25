@@ -14,4 +14,10 @@ export class PublicSitesController {
   previewSite(@Param("websiteId") websiteId: string, @Query("path") path?: string) {
     return this.websites.resolvePublicSitePreview(websiteId, path);
   }
+
+  /** Which website (and its tenant) a custom domain is linked to — see WebsitesService.resolveDomainOwner. */
+  @Get("domain-owner")
+  domainOwner(@Query("host") host?: string) {
+    return this.websites.resolveDomainOwner(host);
+  }
 }

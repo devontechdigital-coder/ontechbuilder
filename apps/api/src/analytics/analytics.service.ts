@@ -14,6 +14,15 @@ interface TrackInput {
   ip: string | undefined;
 }
 
+interface AnalyticsQuery {
+  /** Used only when from/to aren't both given. */
+  days?: number;
+  from?: string;
+  to?: string;
+  /** Caps topPages/trafficSources/sessionsByLocation — the dashboard's cards use the default (10); a "view all" page raises it. */
+  limit?: number;
+}
+
 const LIVE_WINDOW_MINUTES = 5;
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -125,19 +134,19 @@ export class AnalyticsService {
     };
   }
 
-  async getAnalytics(actorUserId: string, tenantId: string, websiteId: string, rangeDays: number) {
+  async getAnalytics(actorUserId: string, tenantId: string, websiteId: string, query: AnalyticsQuery) {
     await this.access.assertWebsiteAccess(actorUserId, tenantId, websiteId);
 
-    const days = Math.min(Math.max(rangeDays, 1), 90);
-    const now = new Date();
-    const start = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
-    const previousStart = new Date(start.getTime() - days * 24 * 60 * 60 * 1000);
+    const { start, end } = resolveAnalyticsRange(query);
+    const rangeMs = end.getTime() - start.getTime();
+    const previousStart = new Date(start.getTime() - rangeMs);
+    const limit = Math.min(Math.max(query.limit ?? 10, 1), 500);
 
     const scope: Prisma.PageViewWhereInput = { tenantId, websiteId };
 
     const [currentRows, previousSessionRows, deviceRows, pageRows] = await Promise.all([
       this.prisma.pageView.findMany({
-        where: { ...scope, createdAt: { gte: start } },
+        where: { ...scope, createdAt: { gte: start, lte: end } },
         select: { sessionId: true, path: true, deviceType: true, referrer: true, country: true, region: true, city: true, createdAt: true },
         orderBy: { createdAt: "asc" },
       }),
@@ -146,8 +155,8 @@ export class AnalyticsService {
         select: { sessionId: true },
         distinct: ["sessionId"],
       }),
-      this.prisma.pageView.groupBy({ by: ["deviceType"], where: { ...scope, createdAt: { gte: start } }, _count: { _all: true } }),
-      this.prisma.pageView.groupBy({ by: ["path"], where: { ...scope, createdAt: { gte: start } }, _count: { _all: true }, orderBy: { _count: { path: "desc" } }, take: 10 }),
+      this.prisma.pageView.groupBy({ by: ["deviceType"], where: { ...scope, createdAt: { gte: start, lte: end } }, _count: { _all: true } }),
+      this.prisma.pageView.groupBy({ by: ["path"], where: { ...scope, createdAt: { gte: start, lte: end } }, _count: { _all: true }, orderBy: { _count: { path: "desc" } }, take: limit }),
     ]);
 
     const totalPageViews = currentRows.length;
@@ -156,7 +165,8 @@ export class AnalyticsService {
     const previousSessions = previousSessionRows.length;
     const sessionsChangePct = percentChange(previousSessions, totalSessions);
 
-    const bucketMs = days <= 2 ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
+    const spanDays = rangeMs / (24 * 60 * 60 * 1000);
+    const bucketMs = spanDays <= 2 ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
     const seriesMap = new Map<number, { pageViews: number; sessions: Set<string> }>();
     for (const row of currentRows) {
       const bucket = Math.floor(row.createdAt.getTime() / bucketMs) * bucketMs;
@@ -184,7 +194,7 @@ export class AnalyticsService {
     const sessionsByLocation = [...locationCounts.entries()]
       .map(([label, count]) => ({ label, count }))
       .sort((a, b) => b.count - a.count)
-      .slice(0, 8);
+      .slice(0, limit);
 
     const sourceCounts = new Map<string, number>();
     for (const row of currentRows) {
@@ -194,7 +204,7 @@ export class AnalyticsService {
     const trafficSources = [...sourceCounts.entries()]
       .map(([label, count]) => ({ label, count }))
       .sort((a, b) => b.count - a.count)
-      .slice(0, 8);
+      .slice(0, limit);
 
     return {
       totalPageViews,
@@ -207,6 +217,27 @@ export class AnalyticsService {
       trafficSources,
     };
   }
+}
+
+/** Custom (from/to) wins when both are given and valid; otherwise falls back to a trailing N-day window ending now. */
+function resolveAnalyticsRange(query: AnalyticsQuery): { start: Date; end: Date } {
+  if (query.from && query.to) {
+    const start = new Date(query.from);
+    const end = new Date(query.to);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+      throw new BadRequestException("from/to must be valid dates");
+    }
+    if (start > end) {
+      throw new BadRequestException("from must not be after to");
+    }
+    end.setHours(23, 59, 59, 999);
+    return { start, end };
+  }
+
+  const days = Math.min(Math.max(query.days ?? 7, 1), 365);
+  const end = new Date();
+  const start = new Date(end.getTime() - days * 24 * 60 * 60 * 1000);
+  return { start, end };
 }
 
 function parseDeviceType(userAgent: string): string | undefined {

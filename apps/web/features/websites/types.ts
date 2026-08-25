@@ -144,6 +144,7 @@ export interface FormSummary {
   status: "DRAFT" | "PUBLISHED" | "ARCHIVED";
   fields: FormField[];
   mailSettings: FormMailSettings;
+  customCss: string;
   createdAt: string;
   updatedAt: string;
 }

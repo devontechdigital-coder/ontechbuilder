@@ -114,14 +114,14 @@ export function Sheet({
     <DialogPrimitive.Root open={open} onOpenChange={(nextOpen) => (!nextOpen ? onClose() : undefined)}>
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-secondary/35 backdrop-blur-sm" />
-        <DialogPrimitive.Content className="fixed inset-y-0 right-0 z-50 grid h-full w-full max-w-md content-start gap-4 border-l bg-surface p-5 shadow-xl shadow-slate-950/10">
-          <div className="flex items-center justify-between gap-3">
+        <DialogPrimitive.Content className="fixed inset-y-0 right-0 z-50 grid h-full w-full max-w-md grid-rows-[auto_minmax(0,1fr)] border-l bg-surface shadow-xl shadow-slate-950/10">
+          <div className="flex items-center justify-between gap-3 border-b p-5">
             <DialogPrimitive.Title className="text-lg font-semibold text-foreground">{title}</DialogPrimitive.Title>
             <IconButton label="Close" onClick={onClose}>
               <X className="size-4" />
             </IconButton>
           </div>
-          {children}
+          <div className="grid min-h-0 content-start gap-4 overflow-y-auto p-5">{children}</div>
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>

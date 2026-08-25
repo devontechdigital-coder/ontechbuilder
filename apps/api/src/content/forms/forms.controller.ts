@@ -68,6 +68,7 @@ export class FormsController {
       status: input.status,
       fields: input.fields,
       mailSettings: input.mailSettings,
+      customCss: input.customCss,
     });
   }
 

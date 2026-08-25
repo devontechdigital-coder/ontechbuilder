@@ -248,11 +248,22 @@ export function FormsWorkspace({ params }: { params: Promise<{ id: string }> }) 
     { value: "ARCHIVED", label: `Archived (${counts.ARCHIVED})` },
   ];
 
-  if (!hasLoadedDashboardShell && (!me || !website)) {
-    return <LoadingState label="Loading forms" />;
-  }
-
   if (!me || !website) {
+    if (hasLoadedDashboardShell && me) {
+      return (
+        <DashboardShell
+          title="Loading forms"
+          eyebrow="Website"
+          description="Loading the latest form data."
+          me={me}
+          tenants={tenants}
+          breadcrumbs={[{ label: "Workspace", href: "/" }, { label: "Websites", href: "/websites" }]}
+          onTenantChange={switchTenant}
+        >
+          <LoadingState label="Loading forms" contentOnly />
+        </DashboardShell>
+      );
+    }
     return <LoadingState label="Loading forms" contentOnly={hasLoadedDashboardShell} />;
   }
 

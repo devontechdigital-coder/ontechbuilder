@@ -76,17 +76,19 @@ export function AppSidebar({
   activeTenant,
   tenants,
   onLogout,
+  lockedWebsiteId,
 }: {
   user: SafeUser;
   activeTenant: ActiveTenant | null;
   tenants?: TenantSummary[];
   onLogout: () => Promise<void>;
+  lockedWebsiteId?: string | null;
 }) {
   const pathname = usePathname() ?? "/";
   const activeTenantName =
     tenants?.find((tenant) => tenant.id === activeTenant?.id)?.name ?? activeTenant?.id.slice(0, 8);
   const websiteMatch = pathname.match(/^\/websites\/([^/]+)/);
-  const websiteBasePath = websiteMatch ? `/websites/${websiteMatch[1]}` : null;
+  const websiteBasePath = lockedWebsiteId ? `/websites/${lockedWebsiteId}` : websiteMatch ? `/websites/${websiteMatch[1]}` : null;
   const isWebsiteOpen = Boolean(websiteBasePath);
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
 
@@ -105,27 +107,31 @@ export function AppSidebar({
           </span>
         </Link>
 
-        <div className="flex items-center gap-2 rounded-lg border border-sidebar-border bg-surface px-2.5 py-2 shadow-sm shadow-slate-950/5 group-data-[sidebar-open=false]/sidebar-wrapper:hidden">
-          <span
-            className="flex size-6 shrink-0 items-center justify-center rounded-md bg-accent/10 text-[11px] font-semibold uppercase text-accent"
-            aria-hidden="true"
-          >
-            {(activeTenantName ?? "?").slice(0, 1)}
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block truncate text-[12.5px] font-semibold leading-tight text-foreground">
-              {activeTenantName ?? "No workspace"}
+        {lockedWebsiteId ? null : (
+          <div className="flex items-center gap-2 rounded-lg border border-sidebar-border bg-surface px-2.5 py-2 shadow-sm shadow-slate-950/5 group-data-[sidebar-open=false]/sidebar-wrapper:hidden">
+            <span
+              className="flex size-6 shrink-0 items-center justify-center rounded-md bg-accent/10 text-[11px] font-semibold uppercase text-accent"
+              aria-hidden="true"
+            >
+              {(activeTenantName ?? "?").slice(0, 1)}
             </span>
-            <span className="block truncate text-[11px] capitalize leading-tight text-sidebar-foreground/60">
-              {activeTenant ? `${activeTenant.role.toLowerCase()} access` : "Select workspace"}
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[12.5px] font-semibold leading-tight text-foreground">
+                {activeTenantName ?? "No workspace"}
+              </span>
+              <span className="block truncate text-[11px] capitalize leading-tight text-sidebar-foreground/60">
+                {activeTenant ? `${activeTenant.role.toLowerCase()} access` : "Select workspace"}
+              </span>
             </span>
-          </span>
-          <ChevronsUpDown className="size-3.5 shrink-0 text-sidebar-foreground/50" aria-hidden="true" />
-        </div>
+            <ChevronsUpDown className="size-3.5 shrink-0 text-sidebar-foreground/50" aria-hidden="true" />
+          </div>
+        )}
       </SidebarHeader>
 
       <SidebarContent>
-        {globalNavGroups.map((group) => (
+        {lockedWebsiteId
+          ? null
+          : globalNavGroups.map((group) => (
           <SidebarGroup key={group.label}>
             <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
             <SidebarMenu>

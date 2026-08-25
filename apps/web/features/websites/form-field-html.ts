@@ -1,17 +1,11 @@
 /**
- * Expands `[form id="..."]` tokens found anywhere in a theme's customizer settings (in practice,
- * a Custom Code/Custom HTML block's freeform content — see ontech-universal-zip's CustomCode
- * section) into a real, working `<form>` — generated server-side once per request, before the
- * theme ever sees the settings, since a theme's own section component just does
- * `dangerouslySetInnerHTML` on whatever string it's given and can't host a live React widget.
- *
- * The generated form posts natively (no JS — dangerouslySetInnerHTML never executes injected
- * <script> tags anyway) to the public submit endpoint; a CSS `:target` swap shows a thank-you
- * message after the API redirects back with a `#lead-form-thanks-{formId}` hash. See
- * forms.controller.ts's PublicFormsController.submitForm for the redirect side of this.
+ * Renders a form's fields into the same real `<form>` markup used everywhere a form actually
+ * gets embedded — the customizer's own shortcode preview (customizer/shortcodes.ts) and the CSS
+ * tab's live preview (form-builder-page.tsx) both import this, so what a merchant styles is
+ * exactly what visitors will see (same class names: .lead-form, .lead-form__input, ...).
  */
 
-interface PublicFormField {
+export interface PublicFormField {
   id: string;
   type: string;
   label: string;
@@ -21,24 +15,22 @@ interface PublicFormField {
   defaultValue?: string;
   helpText?: string;
   options?: Array<{ label: string; value: string }>;
-  min?: number;
-  max?: number;
-  step?: number;
-  minLength?: number;
-  maxLength?: number;
+  min?: number | undefined;
+  max?: number | undefined;
+  step?: number | undefined;
+  minLength?: number | undefined;
+  maxLength?: number | undefined;
   pattern?: string;
   acceptedFileTypes?: string;
-  rows?: number;
+  rows?: number | undefined;
 }
 
-interface PublicForm {
+export interface PublicForm {
   id: string;
   name: string;
   fields: PublicFormField[];
   customCss?: string;
 }
-
-const FORM_SHORTCODE_PATTERN = /\[form\s+id=["']([0-9a-fA-F-]{36})["']\s*\]/g;
 
 function escapeHtml(value: unknown): string {
   return String(value ?? "")
@@ -52,7 +44,7 @@ function escapeHtml(value: unknown): string {
 const TEXT_LIKE_TYPES = new Set(["text", "email", "url", "tel", "password", "search", "date", "time", "datetime-local", "month", "week", "hidden"]);
 const BUTTON_TYPES = new Set(["submit", "reset", "button"]);
 
-function renderFieldHtml(field: PublicFormField): string {
+export function renderFieldHtml(field: PublicFormField): string {
   const commonAttrs = [
     field.required ? "required" : "",
     field.placeholder ? `placeholder="${escapeHtml(field.placeholder)}"` : "",
@@ -106,11 +98,15 @@ function renderFieldHtml(field: PublicFormField): string {
   }
 
   if (field.type === "checkbox") {
-    const options = (field.options ?? []).map((option) => `
+    const options = (field.options ?? [])
+      .map(
+        (option) => `
       <label class="lead-form__choice">
         <input type="checkbox" name="${escapeHtml(field.name)}[]" value="${escapeHtml(option.value)}" />
         ${escapeHtml(option.label)}
-      </label>`).join("");
+      </label>`,
+      )
+      .join("");
     return wrap(`<div class="lead-form__choices">${options}</div>`);
   }
 
@@ -127,9 +123,6 @@ function renderFieldHtml(field: PublicFormField): string {
   }
 
   if (field.type === "file") {
-    // Native form posts here are urlencoded, not multipart (no public upload pipeline exists yet)
-    // — the browser silently drops file inputs from an urlencoded submission, so every OTHER
-    // field still submits fine; only the file itself is not received.
     return wrap(`<input class="lead-form__input" type="file" id="lead-form-${escapeHtml(field.id)}" name="${escapeHtml(field.name)}" ${field.acceptedFileTypes ? `accept="${escapeHtml(field.acceptedFileTypes)}"` : ""} />`);
   }
 
@@ -140,7 +133,8 @@ function renderFieldHtml(field: PublicFormField): string {
   return "";
 }
 
-function renderFormHtml(form: PublicForm, apiBaseUrl: string): string {
+/** apiBaseUrl becomes the real submit action; pass "" (or omit) for a pure styling preview where the form never actually submits. */
+export function renderFormHtml(form: PublicForm, apiBaseUrl = ""): string {
   const hasSubmitButton = form.fields.some((field) => field.type === "submit");
   const fieldsHtml = form.fields.map(renderFieldHtml).join("\n");
   const submitButton = hasSubmitButton ? "" : `<button class="lead-form__button" type="submit">Submit</button>`;
@@ -168,51 +162,4 @@ function renderFormHtml(form: PublicForm, apiBaseUrl: string): string {
   </style>
   ${form.customCss ? `<style>${form.customCss}</style>` : ""}
 </div>`;
-}
-
-async function fetchPublicForm(formId: string, internalApiBaseUrl: string): Promise<PublicForm | null> {
-  try {
-    const response = await fetch(`${internalApiBaseUrl}/public/forms/${formId}`, { cache: "no-store" });
-    if (!response.ok) return null;
-    return (await response.json()) as PublicForm;
-  } catch {
-    return null;
-  }
-}
-
-async function replaceFormShortcodes(text: string, internalApiBaseUrl: string, publicApiBaseUrl: string, cache: Map<string, string>): Promise<string> {
-  const matches = [...text.matchAll(FORM_SHORTCODE_PATTERN)];
-  if (!matches.length) return text;
-
-  let result = text;
-  for (const match of matches) {
-    const [token, formId] = match;
-    if (!formId) continue;
-    let html = cache.get(formId);
-    if (html === undefined) {
-      const form = await fetchPublicForm(formId, internalApiBaseUrl);
-      html = form ? renderFormHtml(form, publicApiBaseUrl) : `<p class="lead-form-error">This form is no longer available.</p>`;
-      cache.set(formId, html);
-    }
-    result = result.replace(token, html);
-  }
-  return result;
-}
-
-/** Recursively walks any settings shape (nested customizer.pages / customizer.global sections and blocks) and expands form shortcodes in every string it finds. */
-export async function expandFormShortcodes(value: unknown, internalApiBaseUrl: string, publicApiBaseUrl: string, cache: Map<string, string> = new Map()): Promise<unknown> {
-  if (typeof value === "string") {
-    if (!value.includes("[form ")) return value;
-    return replaceFormShortcodes(value, internalApiBaseUrl, publicApiBaseUrl, cache);
-  }
-  if (Array.isArray(value)) {
-    return Promise.all(value.map((item) => expandFormShortcodes(item, internalApiBaseUrl, publicApiBaseUrl, cache)));
-  }
-  if (value && typeof value === "object") {
-    const entries = await Promise.all(
-      Object.entries(value as Record<string, unknown>).map(async ([key, val]) => [key, await expandFormShortcodes(val, internalApiBaseUrl, publicApiBaseUrl, cache)] as const),
-    );
-    return Object.fromEntries(entries);
-  }
-  return value;
 }

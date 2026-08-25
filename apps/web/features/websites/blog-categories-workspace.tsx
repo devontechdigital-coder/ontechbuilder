@@ -267,11 +267,22 @@ export function BlogCategoriesWorkspace({ params }: { params: Promise<{ id: stri
     { value: "ARCHIVED", label: `Archived (${counts.ARCHIVED})` },
   ];
 
-  if (!hasLoadedDashboardShell && (!me || !website)) {
-    return <LoadingState label="Loading blog categories" />;
-  }
-
   if (!me || !website) {
+    if (hasLoadedDashboardShell && me) {
+      return (
+        <DashboardShell
+          title="Loading blog categories"
+          eyebrow="Website"
+          description="Loading the latest blog category data."
+          me={me}
+          tenants={tenants}
+          breadcrumbs={[{ label: "Workspace", href: "/" }, { label: "Websites", href: "/websites" }]}
+          onTenantChange={switchTenant}
+        >
+          <LoadingState label="Loading blog categories" contentOnly />
+        </DashboardShell>
+      );
+    }
     return <LoadingState label="Loading blog categories" contentOnly={hasLoadedDashboardShell} />;
   }
 

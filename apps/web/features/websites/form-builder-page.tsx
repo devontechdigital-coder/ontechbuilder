@@ -12,6 +12,7 @@ import {
   Circle,
   ClipboardList,
   Clock,
+  Code2,
   EyeOff,
   GripVertical,
   Hash,
@@ -33,6 +34,7 @@ import {
   Type,
   Upload,
 } from "lucide-react";
+import { motion } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { use, useEffect, useMemo, useState, type ComponentType } from "react";
 import toast from "react-hot-toast";
@@ -44,6 +46,7 @@ import { Modal } from "../../components/ui/overlay";
 import { apiRequest } from "../../lib/api";
 import { cn } from "../../lib/utils";
 import type { ActiveTenant, SafeUser, TenantSummary } from "../auth/types";
+import { renderFormHtml, type PublicForm } from "./form-field-html";
 import { FORM_FIELD_TYPES, type FormField, type FormFieldOption, type FormFieldType, type FormMailSettings, type FormSummary, type WebsiteSummary } from "./types";
 
 interface MeResponse {
@@ -287,7 +290,7 @@ export function FormBuilderPage({ params }: { params: Promise<{ id: string; form
   const [form, setForm] = useState<FormSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState<"form" | "mail">("form");
+  const [activeTab, setActiveTab] = useState<"form" | "mail" | "css">("form");
 
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
@@ -301,6 +304,7 @@ export function FormBuilderPage({ params }: { params: Promise<{ id: string; form
     subject: "New form submission",
     bodyHtml: "<p>You received a new submission.</p>",
   });
+  const [customCss, setCustomCss] = useState("");
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
   const [layoutPickerOpen, setLayoutPickerOpen] = useState(false);
   const [draggingPaletteType, setDraggingPaletteType] = useState<FormFieldType | null>(null);
@@ -321,6 +325,7 @@ export function FormBuilderPage({ params }: { params: Promise<{ id: string; form
       setStatus(formResponse.status);
       setRows(deserializeFields(formResponse.fields));
       setMailSettings(formResponse.mailSettings);
+      setCustomCss(formResponse.customCss);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Form failed to load");
     }
@@ -370,11 +375,12 @@ export function FormBuilderPage({ params }: { params: Promise<{ id: string; form
     try {
       const updated = await apiRequest<FormSummary>(`/forms/${formId}`, {
         method: "PATCH",
-        body: JSON.stringify({ name, slug, status, fields: serializeRows(rows), mailSettings }),
+        body: JSON.stringify({ name, slug, status, fields: serializeRows(rows), mailSettings, customCss }),
       });
       setForm(updated);
       setRows(deserializeFields(updated.fields));
       setMailSettings(updated.mailSettings);
+      setCustomCss(updated.customCss);
       toast.success("Form saved");
     } catch (requestError) {
       const message = requestError instanceof Error ? requestError.message : "Save failed";
@@ -487,11 +493,22 @@ export function FormBuilderPage({ params }: { params: Promise<{ id: string; form
 
   const selectedField = useMemo(() => flatFields.find((field) => field.id === selectedFieldId) ?? null, [flatFields, selectedFieldId]);
 
-  if (!hasLoadedDashboardShell && (!me || !website || !form)) {
-    return <LoadingState label="Loading form builder" />;
-  }
-
   if (!me || !website || !form) {
+    if (hasLoadedDashboardShell && me) {
+      return (
+        <DashboardShell
+          title="Loading form builder"
+          eyebrow="Form"
+          description="Loading the latest form data."
+          me={me}
+          tenants={tenants}
+          breadcrumbs={[{ label: "Workspace", href: "/" }, { label: "Websites", href: "/websites" }]}
+          onTenantChange={switchTenant}
+        >
+          <LoadingState label="Loading form builder" contentOnly />
+        </DashboardShell>
+      );
+    }
     return <LoadingState label="Loading form builder" contentOnly={hasLoadedDashboardShell} />;
   }
 
@@ -543,33 +560,38 @@ export function FormBuilderPage({ params }: { params: Promise<{ id: string; form
         </div>
       </Card>
 
-      <div className="inline-flex w-full gap-1 rounded-xl border bg-surface-secondary/50 p-1.5 sm:w-auto">
-        <button
-          type="button"
-          onClick={() => setActiveTab("form")}
-          className={cn(
-            "flex flex-1 items-center justify-center gap-2 rounded-lg px-5 py-2.5 text-[13px] font-semibold transition-colors sm:flex-none",
-            activeTab === "form"
-              ? "bg-primary text-primary-foreground shadow-sm shadow-slate-950/10"
-              : "text-muted-foreground hover:bg-surface hover:text-foreground",
-          )}
-        >
-          <ClipboardList className="size-4" />
-          Form
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab("mail")}
-          className={cn(
-            "flex flex-1 items-center justify-center gap-2 rounded-lg px-5 py-2.5 text-[13px] font-semibold transition-colors sm:flex-none",
-            activeTab === "mail"
-              ? "bg-primary text-primary-foreground shadow-sm shadow-slate-950/10"
-              : "text-muted-foreground hover:bg-surface hover:text-foreground",
-          )}
-        >
-          <Mail className="size-4" />
-          Mail
-        </button>
+      <div className="inline-flex w-full gap-1 rounded-xl border bg-surface-secondary/60 p-1.5 shadow-inner shadow-slate-950/[0.03] sm:w-auto">
+        {(
+          [
+            { id: "form" as const, label: "Form", icon: ClipboardList },
+            { id: "mail" as const, label: "Mail", icon: Mail },
+            { id: "css" as const, label: "CSS", icon: Code2 },
+          ]
+        ).map((tab) => {
+          const Icon = tab.icon;
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+              className={cn(
+                "relative flex flex-1 items-center justify-center gap-2 rounded-lg px-5 py-2.5 text-[13px] font-semibold transition-colors duration-200 sm:flex-none",
+                isActive ? "text-primary-foreground" : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {isActive ? (
+                <motion.span
+                  layoutId="form-builder-tab-pill"
+                  className="absolute inset-0 rounded-lg bg-primary shadow-sm shadow-slate-950/15"
+                  transition={{ type: "spring", stiffness: 500, damping: 34 }}
+                />
+              ) : null}
+              <Icon className="relative z-10 size-4" />
+              <span className="relative z-10">{tab.label}</span>
+            </button>
+          );
+        })}
       </div>
 
       {activeTab === "form" ? (
@@ -780,13 +802,15 @@ export function FormBuilderPage({ params }: { params: Promise<{ id: string; form
             )}
           </Card>
         </div>
-      ) : (
+      ) : activeTab === "mail" ? (
         <MailTab
           mailSettings={mailSettings}
           onChange={setMailSettings}
           fields={flatFields}
           onInsertToken={insertToken}
         />
+      ) : (
+        <CssTab customCss={customCss} onChange={setCustomCss} fields={flatFields} formId={formId} formName={name} />
       )}
 
       <Modal
@@ -1121,6 +1145,81 @@ function MailTab({
           <p className="text-[12px] leading-5 text-muted-foreground">Add fields on the Form tab to use them as placeholders here.</p>
         )}
       </Card>
+    </div>
+  );
+}
+
+const CSS_TARGET_CLASSES = [
+  { selector: ".lead-form", description: "The whole form" },
+  { selector: ".lead-form__field", description: "One field's wrapper" },
+  { selector: ".lead-form__label", description: "Field label" },
+  { selector: ".lead-form__input", description: "Text / select / textarea input" },
+  { selector: ".lead-form__hint", description: "Help text under a field" },
+  { selector: ".lead-form__choices", description: "A radio/checkbox group" },
+  { selector: ".lead-form__choice", description: "One radio/checkbox row" },
+  { selector: ".lead-form__button", description: "Submit / reset / button" },
+];
+
+/**
+ * Custom CSS applied wherever this form actually renders as a real <form> — the customizer's own
+ * shortcode preview and the live public embed, both via form-field-html.ts's renderFormHtml (same
+ * class names either place). The preview here calls that exact function so what's shown matches
+ * what visitors will see, not an approximation.
+ */
+function CssTab({
+  customCss,
+  onChange,
+  fields,
+  formId,
+  formName,
+}: {
+  customCss: string;
+  onChange: (value: string) => void;
+  fields: FormField[];
+  formId: string;
+  formName: string;
+}) {
+  const previewHtml = useMemo(() => {
+    const publicForm: PublicForm = { id: formId, name: formName, fields, customCss };
+    const bodyHtml = renderFormHtml(publicForm);
+    return `<!doctype html><html><head><meta charset="utf-8" /><style>body{font-family:ui-sans-serif,system-ui,-apple-system,sans-serif;margin:0;padding:20px;background:#fff;color:#111827;}</style></head><body>${bodyHtml}</body></html>`;
+  }, [customCss, fields, formId, formName]);
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
+      <Card className="content-start">
+        <p className="text-[12.5px] font-semibold text-foreground">Custom CSS</p>
+        <p className="text-[11.5px] leading-5 text-muted-foreground">
+          Style this form's inputs, labels, and buttons. Applied everywhere this form is embedded — the shortcode-rendered public form and this preview.
+        </p>
+        <Textarea
+          value={customCss}
+          onChange={(event) => onChange(event.target.value)}
+          rows={18}
+          spellCheck={false}
+          placeholder={".lead-form__input {\n  border-radius: 10px;\n  border-color: #6366f1;\n}\n\n.lead-form__button {\n  background: linear-gradient(135deg, #6366f1, #8b5cf6);\n  border-radius: 999px;\n}"}
+          className="font-mono text-[12.5px] leading-5"
+        />
+      </Card>
+
+      <div className="grid content-start gap-4">
+        <Card className="content-start">
+          <p className="text-[12.5px] font-semibold text-foreground">Live preview</p>
+          <iframe title="Form CSS preview" srcDoc={previewHtml} sandbox="" className="h-[420px] w-full rounded-lg border bg-white" />
+        </Card>
+
+        <Card className="content-start">
+          <p className="text-[12.5px] font-semibold text-foreground">Available classes</p>
+          <div className="grid gap-1.5">
+            {CSS_TARGET_CLASSES.map((item) => (
+              <div key={item.selector} className="grid gap-0.5 rounded-md border bg-surface-secondary/40 px-2 py-1.5">
+                <code className="font-mono text-[11.5px] font-semibold text-info">{item.selector}</code>
+                <span className="text-[11px] text-muted-foreground">{item.description}</span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      </div>
     </div>
   );
 }

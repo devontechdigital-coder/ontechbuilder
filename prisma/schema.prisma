@@ -572,6 +572,8 @@ model Form {
   fields    Json       @default("[]")
   /** { enabled, to, from, additionalHeaders, subject, bodyHtml } — the notification email sent on each submission. */
   mailSettings Json    @default("{}")
+  /** Merchant-authored CSS applied to this form's rendered inputs (both the customizer's own live preview and the real embedded/shortcode form) — appended after the built-in styles so it wins on equal specificity. */
+  customCss String     @default("")
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
 

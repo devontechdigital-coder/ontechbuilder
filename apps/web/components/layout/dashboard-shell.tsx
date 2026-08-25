@@ -1,10 +1,11 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { apiRequest } from "../../lib/api";
 import type { ActiveTenant, SafeUser, TenantSummary } from "../../features/auth/types";
+import { clearLockedWebsiteId, readLockedWebsiteId } from "../../lib/locked-website";
 import { AppSidebar } from "./app-sidebar";
 import { SiteHeader } from "./site-header";
 import { SidebarInset, SidebarProvider } from "../ui/sidebar";
@@ -31,15 +32,31 @@ export function DashboardShell({
   onTenantChange?: (tenantId: string) => Promise<void>;
 }) {
   const router = useRouter();
+  const pathname = usePathname() ?? "/";
+  const [lockedWebsiteId, setLockedWebsiteId] = useState<string | null>(null);
 
   useEffect(() => {
     window.sessionStorage.setItem("stackbuilder-dashboard-shell-ready", "true");
     window.sessionStorage.setItem("stackbuilder-dashboard-shell-state", JSON.stringify({ me, tenants: tenants ?? [] }));
   }, [me, tenants]);
 
+  useEffect(() => {
+    setLockedWebsiteId(readLockedWebsiteId());
+  }, []);
+
+  useEffect(() => {
+    if (!lockedWebsiteId) return;
+    const allowedPrefix = `/websites/${lockedWebsiteId}`;
+    if (pathname !== allowedPrefix && !pathname.startsWith(`${allowedPrefix}/`)) {
+      router.replace(allowedPrefix);
+    }
+  }, [lockedWebsiteId, pathname, router]);
+
   async function logout() {
+    const wasLocked = Boolean(lockedWebsiteId);
+    clearLockedWebsiteId();
     await apiRequest("/auth/logout", { method: "POST" });
-    router.push("/login");
+    router.push(wasLocked ? "/admin" : "/login");
   }
 
   return (
@@ -48,6 +65,7 @@ export function DashboardShell({
         user={me.user}
         activeTenant={me.activeTenant}
         onLogout={logout}
+        lockedWebsiteId={lockedWebsiteId}
         {...(tenants ? { tenants } : {})}
       />
       <SidebarInset>
@@ -55,8 +73,8 @@ export function DashboardShell({
           title={title}
           activeTenant={me.activeTenant}
           {...(breadcrumbs ? { breadcrumbs } : {})}
-          {...(tenants ? { tenants } : {})}
-          {...(onTenantChange ? { onTenantChange } : {})}
+          {...(!lockedWebsiteId && tenants ? { tenants } : {})}
+          {...(!lockedWebsiteId && onTenantChange ? { onTenantChange } : {})}
         />
 
         <section className="bg-surface px-4 pb-4 pt-5 md:px-6">

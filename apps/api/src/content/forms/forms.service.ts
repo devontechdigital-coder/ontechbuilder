@@ -30,6 +30,7 @@ interface UpdateFormInput extends ActorInput {
   status?: unknown;
   fields?: unknown;
   mailSettings?: unknown;
+  customCss?: unknown;
 }
 
 interface BulkFormActionInput extends ActorInput {
@@ -120,6 +121,7 @@ const defaultMailSettings: FormMailSettings = {
 
 const maxFields = 100;
 const maxMailFieldLength = 20_000;
+const maxCustomCssLength = 20_000;
 
 export const formSelect = {
   id: true,
@@ -130,6 +132,7 @@ export const formSelect = {
   status: true,
   fields: true,
   mailSettings: true,
+  customCss: true,
   createdAt: true,
   updatedAt: true,
 } satisfies Prisma.FormSelect;
@@ -245,6 +248,9 @@ export class FormsService {
     if (input.mailSettings !== undefined) {
       data.mailSettings = parseMailSettings(input.mailSettings);
     }
+    if (input.customCss !== undefined) {
+      data.customCss = parseCustomCss(input.customCss);
+    }
 
     if (!Object.keys(data).length) {
       throw new BadRequestException("At least one form field is required");
@@ -334,7 +340,7 @@ export class FormsService {
   async getPublicForm(formId: string) {
     const form = await this.prisma.form.findFirst({
       where: { id: formId, status: { not: PageStatus.ARCHIVED } },
-      select: { id: true, name: true, fields: true },
+      select: { id: true, name: true, fields: true, customCss: true },
     });
 
     if (!form) {
@@ -615,6 +621,14 @@ export function parseFormFields(value: unknown): Prisma.InputJsonValue {
   }
 
   return fields as unknown as Prisma.InputJsonValue;
+}
+
+/** No sanitization beyond a length cap — this is plain CSS text, injected into a <style> tag (never HTML/JS), and only the form's own owner (an authenticated EDITOR) can ever write it. */
+function parseCustomCss(value: unknown): string {
+  if (value === undefined || value === null) return "";
+  if (typeof value !== "string") throw new BadRequestException("customCss must be a string");
+  if (value.length > maxCustomCssLength) throw new BadRequestException("customCss is too long");
+  return value;
 }
 
 function mailString(value: unknown, field: string, maxLength: number): string {

@@ -56,6 +56,13 @@ const server = createServer((request, response) => {
     return;
   }
 
+  if (requestUrl.pathname === "/admin" || requestUrl.pathname.startsWith("/admin/")) {
+    // Custom domains (e.g. flowati.com/admin) get a login into the real admin dashboard,
+    // scoped to whichever website that domain is linked to — see apps/web/app/admin/page.tsx.
+    proxyRequest(request, response, webPort, requestUrl);
+    return;
+  }
+
   if (requestUrl.pathname === "/site" || requestUrl.pathname.startsWith("/site/")) {
     requestUrl.pathname = requestUrl.pathname.replace(/^\/site/, "") || "/";
     requestUrl.pathname = requestUrl.pathname.replace(/^\/_preview(?=\/|$)/, "/preview");
@@ -162,12 +169,18 @@ function createProxyRequest(targetPort, incomingRequest, requestUrl, onResponse)
 }
 
 function shouldUseRendererAssets(request) {
+  const referer = request.headers.referer ?? request.headers.referrer;
+  const refererPath = getHeaderUrlPath(referer);
+
+  // /admin is served by the web app even on a public-site (custom domain) host, so its
+  // Next.js chunks must come from the web build, not the renderer's.
+  if (refererPath === "/admin" || refererPath.startsWith("/admin/")) {
+    return false;
+  }
+
   if (isPublicSiteHost(request.headers.host)) {
     return true;
   }
-
-  const referer = request.headers.referer ?? request.headers.referrer;
-  const refererPath = getHeaderUrlPath(referer);
 
   return refererPath === "/site" || refererPath.startsWith("/site/");
 }

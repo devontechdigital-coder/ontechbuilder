@@ -3,7 +3,6 @@
 import { Radio, Users } from "lucide-react";
 import dynamic from "next/dynamic";
 import { use, useEffect, useMemo, useRef, useState } from "react";
-import { feature } from "topojson-client";
 import { DashboardShell } from "../../components/layout/dashboard-shell";
 import { Alert, Card, LoadingState, SectionHeader } from "../../components/ui/display";
 import { apiRequest } from "../../lib/api";
@@ -19,13 +18,14 @@ interface MeResponse {
 }
 
 const POLL_INTERVAL_MS = 8000;
-/** Well-known, stable public dataset (Natural Earth 110m via world-atlas) — the standard source for exactly this kind of country-outline globe. */
-const WORLD_ATLAS_URL = "https://unpkg.com/world-atlas@2.0.2/countries-110m.json";
-
-/** Minimal shape this component actually reads — the full TopoJSON spec isn't worth a dependency. */
-interface WorldAtlasTopology {
-  objects: { countries: object };
-}
+/**
+ * Real NASA/Natural-Earth-derived daytime map imagery (self-hosted, copied from three-globe's own
+ * MIT-licensed example assets — the standard textures used across virtually every globe.gl demo)
+ * — replaces the earlier abstract hex-dot outline, which didn't read as a real map and made
+ * visitor positions hard to place against actual geography.
+ */
+const GLOBE_IMAGE_URL = "/globe/earth-day.jpg";
+const GLOBE_BUMP_URL = "/globe/earth-topology.png";
 
 function getCachedDashboardShell(): { me: MeResponse; tenants: TenantSummary[] } | null {
   if (typeof window === "undefined") return null;
@@ -47,7 +47,6 @@ export function LiveViewWorkspace({ params }: { params: Promise<{ id: string }> 
   const [website, setWebsite] = useState<WebsiteSummary | null>(null);
   const [data, setData] = useState<LiveViewData | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [countries, setCountries] = useState<object[]>([]);
   const globeRef = useRef<GlobeMethods | undefined>(undefined);
   const [globeSize, setGlobeSize] = useState({ width: 800, height: 600 });
   const containerRef = useRef<HTMLDivElement>(null);
@@ -96,27 +95,6 @@ export function LiveViewWorkspace({ params }: { params: Promise<{ id: string }> 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [me?.activeTenant]);
 
-  // World country outlines, fetched once client-side and converted from topojson — a static
-  // reference dataset (Natural Earth 110m), not tenant data, so it's fine to fetch directly
-  // rather than proxy through the API. If the CDN is unreachable, the globe still renders with
-  // visitor points on a plain sphere — outlines are decorative, not load-bearing.
-  useEffect(() => {
-    let cancelled = false;
-    fetch(WORLD_ATLAS_URL)
-      .then((response) => response.json())
-      .then((topology: WorldAtlasTopology) => {
-        if (cancelled) return;
-        const geojson = feature(topology as never, topology.objects.countries as never) as { features?: object[] };
-        setCountries(geojson.features ?? []);
-      })
-      .catch(() => {
-        // Decorative only — see comment above.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   useEffect(() => {
     function updateSize() {
       if (!containerRef.current) return;
@@ -139,10 +117,22 @@ export function LiveViewWorkspace({ params }: { params: Promise<{ id: string }> 
 
   const points = useMemo(() => (data?.points ?? []).map((point) => ({ ...point, size: 0.4 })), [data?.points]);
 
-  if (!hasLoadedDashboardShell && (!me || !website)) {
-    return <LoadingState label="Loading live view" />;
-  }
   if (!me || !website) {
+    if (hasLoadedDashboardShell && me) {
+      return (
+        <DashboardShell
+          title="Loading live view"
+          eyebrow="Website"
+          description="Loading the latest live view data."
+          me={me}
+          tenants={tenants}
+          breadcrumbs={[{ label: "Workspace", href: "/" }, { label: "Websites", href: "/websites" }]}
+          onTenantChange={switchTenant}
+        >
+          <LoadingState label="Loading live view" contentOnly />
+        </DashboardShell>
+      );
+    }
     return <LoadingState label="Loading live view" contentOnly={hasLoadedDashboardShell} />;
   }
 
@@ -218,19 +208,16 @@ export function LiveViewWorkspace({ params }: { params: Promise<{ id: string }> 
               width={globeSize.width}
               height={globeSize.height}
               backgroundColor="rgba(0,0,0,0)"
+              globeImageUrl={GLOBE_IMAGE_URL}
+              bumpImageUrl={GLOBE_BUMP_URL}
               showAtmosphere
               atmosphereColor="hsl(214, 84%, 70%)"
-              atmosphereAltitude={0.18}
-              hexPolygonsData={countries}
-              hexPolygonResolution={3}
-              hexPolygonMargin={0.3}
-              hexPolygonUseDots
-              hexPolygonColor={() => "rgba(20, 109, 225, 0.55)"}
+              atmosphereAltitude={0.2}
               pointsData={points}
               pointLat="lat"
               pointLng="lng"
               pointLabel="label"
-              pointColor={() => "hsl(151, 64%, 45%)"}
+              pointColor={() => "#22c55e"}
               pointAltitude={0.02}
               pointRadius="size"
               onGlobeReady={() => {

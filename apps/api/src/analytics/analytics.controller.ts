@@ -50,10 +50,23 @@ export class AnalyticsController {
 
   @Get("websites/:websiteId/analytics")
   @RequireRole(MembershipRole.VIEWER)
-  getAnalytics(@Req() request: AuthenticatedRequest, @Param("websiteId") websiteId: string, @Query("days") days?: string) {
+  getAnalytics(
+    @Req() request: AuthenticatedRequest,
+    @Param("websiteId") websiteId: string,
+    @Query("days") days?: string,
+    @Query("from") from?: string,
+    @Query("to") to?: string,
+    @Query("limit") limit?: string,
+  ) {
     const user = getAuthenticatedUser(request);
     const activeTenant = getActiveTenant(request);
-    const rangeDays = days ? Number(days) : 7;
-    return this.analytics.getAnalytics(user.id, activeTenant.id, websiteId, Number.isFinite(rangeDays) ? rangeDays : 7);
+    const parsedDays = days ? Number(days) : undefined;
+    const parsedLimit = limit ? Number(limit) : undefined;
+    return this.analytics.getAnalytics(user.id, activeTenant.id, websiteId, {
+      ...(parsedDays !== undefined && Number.isFinite(parsedDays) ? { days: parsedDays } : {}),
+      ...(from ? { from } : {}),
+      ...(to ? { to } : {}),
+      ...(parsedLimit !== undefined && Number.isFinite(parsedLimit) ? { limit: parsedLimit } : {}),
+    });
   }
 }

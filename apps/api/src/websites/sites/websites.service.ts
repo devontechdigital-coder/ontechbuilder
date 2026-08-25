@@ -239,6 +239,38 @@ export class WebsitesService {
     return buildPublicSiteResponse("portal preview", website, requestedPath);
   }
 
+  /**
+   * Public, unauthenticated on purpose — a domain-to-website mapping is already visible to anyone
+   * who visits the domain itself, so resolving it isn't a security boundary. This only tells the
+   * "{customDomain}/admin" login page WHICH website to offer signing into; the actual access
+   * control happens afterward, when the login flow tries to switch the authenticated session into
+   * that domain's tenant (SessionService.setActiveTenant already rejects a non-member).
+   */
+  async resolveDomainOwner(host: unknown) {
+    const normalizedHostname = normalizeHostname(host);
+
+    const domain = await this.prisma.domain.findFirst({
+      where: {
+        normalizedHostname,
+        status: { not: DomainStatus.DISABLED },
+        website: { status: { not: WebsiteStatus.ARCHIVED } },
+      },
+      select: {
+        website: { select: { id: true, name: true, tenantId: true } },
+      },
+    });
+
+    if (!domain) {
+      throw new NotFoundException("No website is linked to this domain");
+    }
+
+    return {
+      tenantId: domain.website.tenantId,
+      websiteId: domain.website.id,
+      websiteName: domain.website.name,
+    };
+  }
+
   async updateTheme(input: UpdateThemeInput) {
     await this.access.assertWebsiteAccess(input.actorUserId, input.tenantId, input.websiteId);
     const tokens = parseThemeTokens(input.tokens);
