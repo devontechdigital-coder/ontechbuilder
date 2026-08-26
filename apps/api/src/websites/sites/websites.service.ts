@@ -279,6 +279,78 @@ export class WebsitesService {
     };
   }
 
+  /**
+   * Everything the renderer's /robots.txt and /sitemap.xml routes need for the website a domain
+   * is linked to — public, unauthenticated (same reasoning as resolveDomainOwner: a domain's own
+   * robots/sitemap output is already public by definition once the site is live).
+   */
+  async resolvePublicSiteSeo(host: unknown) {
+    const normalizedHostname = normalizeHostname(host);
+
+    const domain = await this.prisma.domain.findFirst({
+      where: {
+        normalizedHostname,
+        status: { not: DomainStatus.DISABLED },
+        website: { status: { not: WebsiteStatus.ARCHIVED } },
+      },
+      select: {
+        website: {
+          select: {
+            id: true,
+            status: true,
+            homePageId: true,
+            searchEngineVisible: true,
+            robotsTxtEnabled: true,
+            robotsTxtContent: true,
+            sitemapEnabled: true,
+            pages: {
+              where: { status: PageStatus.PUBLISHED },
+              select: { id: true, slug: true, updatedAt: true },
+            },
+          },
+        },
+      },
+    });
+
+    if (!domain) {
+      throw new NotFoundException("No website is linked to this domain");
+    }
+
+    const website = domain.website;
+    if (website.status !== WebsiteStatus.PUBLISHED) {
+      return {
+        websiteId: website.id,
+        published: false,
+        searchEngineVisible: false,
+        robotsTxtEnabled: false,
+        robotsTxtContent: "",
+        sitemapEnabled: false,
+        paths: [] as Array<{ path: string; updatedAt: Date }>,
+      };
+    }
+
+    // The homepage is reachable at "/" regardless of whatever slug its own row carries (see
+    // buildPublicSiteResponse's "home" fallback) — listed once there instead of again under its
+    // own slug, which would otherwise send crawlers to the same content at two different URLs.
+    const homePage = website.pages.find((page) => page.id === website.homePageId);
+    const paths: Array<{ path: string; updatedAt: Date }> = [];
+    if (homePage) paths.push({ path: "/", updatedAt: homePage.updatedAt });
+    for (const page of website.pages) {
+      if (page.id === website.homePageId) continue;
+      paths.push({ path: `/${page.slug}`, updatedAt: page.updatedAt });
+    }
+
+    return {
+      websiteId: website.id,
+      published: true,
+      searchEngineVisible: website.searchEngineVisible,
+      robotsTxtEnabled: website.robotsTxtEnabled,
+      robotsTxtContent: website.robotsTxtContent,
+      sitemapEnabled: website.sitemapEnabled,
+      paths,
+    };
+  }
+
   async updateTheme(input: UpdateThemeInput) {
     await this.access.assertWebsiteAccess(input.actorUserId, input.tenantId, input.websiteId);
     const tokens = parseThemeTokens(input.tokens);

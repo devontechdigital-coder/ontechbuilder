@@ -20,4 +20,10 @@ export class PublicSitesController {
   domainOwner(@Query("host") host?: string) {
     return this.websites.resolveDomainOwner(host);
   }
+
+  /** SEO settings + published page paths for a domain's website — see WebsitesService.resolvePublicSiteSeo. */
+  @Get("seo")
+  seo(@Query("host") host?: string) {
+    return this.websites.resolvePublicSiteSeo(host);
+  }
 }
