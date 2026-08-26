@@ -292,7 +292,7 @@ export function LiveViewWorkspace({ params }: { params: Promise<{ id: string }> 
           </Card>
         </div>
 
-        <Card className="grid min-h-[520px] place-items-center overflow-hidden bg-[#f8fafc] !p-0">
+        <Card className="grid min-h-[520px] place-items-center overflow-hidden !p-0">
           <div ref={setGlobeFrame} className="relative aspect-square w-[480px] max-w-full">
             <canvas ref={setCanvasEl} className="absolute inset-0 size-full" />
           </div>
