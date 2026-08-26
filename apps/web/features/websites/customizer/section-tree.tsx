@@ -469,8 +469,23 @@ function AddBlockButton({
   );
 }
 
-function AddSectionButton({ group, onAdd, schemas }: { group: SectionGroupKey; onAdd: (group: SectionGroupKey, schemaId?: string) => void; schemas: SectionSchema[] }) {
-  const [open, setOpen] = useState(false);
+/**
+ * Shared by the sidebar's own "+ Add section" trigger and the canvas toolbar's "Add section
+ * after" button — the latter used to add the first schema in the group outright, with no picker
+ * at all, which is exactly this component's job to prevent. Fully controlled (no trigger button
+ * of its own) so a canvas click can open it too.
+ */
+export function SectionPickerModal({
+  onClose,
+  onPick,
+  open,
+  schemas,
+}: {
+  onClose: () => void;
+  onPick: (schemaId: string) => void;
+  open: boolean;
+  schemas: SectionSchema[];
+}) {
   const [query, setQuery] = useState("");
 
   const filtered = useMemo(() => {
@@ -485,11 +500,54 @@ function AddSectionButton({ group, onAdd, schemas }: { group: SectionGroupKey; o
     return [...byCategory.entries()].sort(([first], [second]) => first.localeCompare(second));
   }, [schemas, query]);
 
-  function handleAdd(schemaId: string) {
-    onAdd(group, schemaId);
-    setOpen(false);
+  function handlePick(schemaId: string) {
+    onPick(schemaId);
     setQuery("");
   }
+
+  return (
+    <Modal open={open} title="Add section" description="Pick a section to add to this page." onClose={onClose} className="max-w-2xl">
+      <div className="grid gap-4 p-5">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input autoFocus placeholder="Search sections" value={query} onChange={(event) => setQuery(event.target.value)} className="pl-8" />
+        </div>
+        {filtered.length ? (
+          <div className="grid gap-5">
+            {filtered.map(([category, categorySchemas]) => (
+              <div key={category} className="grid gap-2">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground/70">{category}</p>
+                <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+                  {categorySchemas.map((schema) => {
+                    const Icon = sectionIcon(schema);
+                    return (
+                      <button
+                        key={schema.id}
+                        type="button"
+                        onClick={() => handlePick(schema.id)}
+                        className="flex flex-col items-start gap-2.5 rounded-lg border bg-surface p-3 text-left transition-colors hover:border-info/40 hover:bg-info/5"
+                      >
+                        <span className="grid size-9 shrink-0 place-items-center rounded-md bg-info/10 text-info">
+                          <Icon className="size-4.5" />
+                        </span>
+                        <span className="min-w-0 text-[12.5px] font-medium leading-tight text-foreground">{schema.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="py-6 text-center text-[12.5px] text-muted-foreground">No sections match "{query}".</p>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+function AddSectionButton({ group, onAdd, schemas }: { group: SectionGroupKey; onAdd: (group: SectionGroupKey, schemaId?: string) => void; schemas: SectionSchema[] }) {
+  const [open, setOpen] = useState(false);
 
   return (
     <>
@@ -501,43 +559,15 @@ function AddSectionButton({ group, onAdd, schemas }: { group: SectionGroupKey; o
         <Plus className="size-3.5" />
         Add section
       </button>
-      <Modal open={open} title="Add section" description="Pick a section to add to this page." onClose={() => setOpen(false)} className="max-w-2xl">
-        <div className="grid gap-4 p-5">
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input autoFocus placeholder="Search sections" value={query} onChange={(event) => setQuery(event.target.value)} className="pl-8" />
-          </div>
-          {filtered.length ? (
-            <div className="grid gap-5">
-              {filtered.map(([category, categorySchemas]) => (
-                <div key={category} className="grid gap-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground/70">{category}</p>
-                  <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
-                    {categorySchemas.map((schema) => {
-                      const Icon = sectionIcon(schema);
-                      return (
-                        <button
-                          key={schema.id}
-                          type="button"
-                          onClick={() => handleAdd(schema.id)}
-                          className="flex flex-col items-start gap-2.5 rounded-lg border bg-surface p-3 text-left transition-colors hover:border-info/40 hover:bg-info/5"
-                        >
-                          <span className="grid size-9 shrink-0 place-items-center rounded-md bg-info/10 text-info">
-                            <Icon className="size-4.5" />
-                          </span>
-                          <span className="min-w-0 text-[12.5px] font-medium leading-tight text-foreground">{schema.name}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="py-6 text-center text-[12.5px] text-muted-foreground">No sections match "{query}".</p>
-          )}
-        </div>
-      </Modal>
+      <SectionPickerModal
+        open={open}
+        onClose={() => setOpen(false)}
+        schemas={schemas}
+        onPick={(schemaId) => {
+          onAdd(group, schemaId);
+          setOpen(false);
+        }}
+      />
     </>
   );
 }

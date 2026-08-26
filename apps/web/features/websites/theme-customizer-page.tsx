@@ -20,7 +20,7 @@ import { FloatingPanel } from "./customizer/floating-panel";
 import { apiRequest } from "../../lib/api";
 import { cn } from "../../lib/utils";
 import type { ActiveTenant, SafeUser, TenantSummary } from "../auth/types";
-import { CustomizerOutline } from "./customizer/section-tree";
+import { CustomizerOutline, SectionPickerModal } from "./customizer/section-tree";
 import { CustomizerInspector } from "./customizer/inspector";
 import { IconAction } from "./customizer/preview-renderer";
 import { isThemeFrameMessage, postToFrame, THEME_FRAME_ACTION, THEME_FRAME_READY, THEME_FRAME_UPDATE } from "./customizer/frame-protocol";
@@ -79,6 +79,8 @@ export function ThemeCustomizerPage({
   const [splitRatio, setSplitRatio] = useState(0.52);
   const [sidebarMinimized, setSidebarMinimized] = useState(false);
   const [sectionEditPanelOpen, setSectionEditPanelOpen] = useState(false);
+  /** Canvas toolbar's "Add section after" — opens the same picker the sidebar's own button does instead of silently adding the group's first schema. */
+  const [addSectionRequest, setAddSectionRequest] = useState<{ group: SectionGroupKey; afterSectionId?: string } | null>(null);
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const canvasFrameRef = useRef<HTMLIFrameElement>(null);
@@ -240,6 +242,15 @@ export function ThemeCustomizerPage({
       return next;
     });
   }
+
+  // Selecting a block — from the canvas, the floating panel's gear, anywhere — should always
+  // make that block visible in the sidebar tree, not just change what the inspector shows.
+  // addSection/addBlockAction already expand explicitly for the section they just created; this
+  // catches every other path (selectBlock, openSettings) uniformly instead of repeating it there.
+  useEffect(() => {
+    if (selected.kind !== "block") return;
+    setExpandedSectionIds((current) => (current.has(selected.sectionId) ? current : new Set(current).add(selected.sectionId)));
+  }, [selected]);
 
   function addSection(group: SectionGroupKey, schemaId?: string, afterSectionId?: string) {
     if (group === "template" && !templateScope.supportsSections) {
@@ -447,6 +458,9 @@ export function ThemeCustomizerPage({
       else if (message.action === "deleteSection") deleteSectionAction(message.sectionId);
       else if (message.action === "moveSection") moveSectionAction(message.sectionId, message.direction);
       else if (message.action === "addSection") addSection(message.group, message.schemaId, message.afterSectionId);
+      else if (message.action === "requestAddSection") {
+        setAddSectionRequest({ group: message.group, ...(message.afterSectionId ? { afterSectionId: message.afterSectionId } : {}) });
+      }
       else if (message.action === "changeSectionSetting") changeSectionSetting(message.sectionId, message.controlId, message.value);
       else if (message.action === "deselect") setSelected({ kind: "theme" });
     }
@@ -649,6 +663,18 @@ export function ThemeCustomizerPage({
             themeSettings={settings}
           />
         </FloatingPanel>
+      ) : null}
+
+      {addSectionRequest ? (
+        <SectionPickerModal
+          open
+          schemas={groupSchemas(sectionSchemas, addSectionRequest.group)}
+          onClose={() => setAddSectionRequest(null)}
+          onPick={(schemaId) => {
+            addSection(addSectionRequest.group, schemaId, addSectionRequest.afterSectionId);
+            setAddSectionRequest(null);
+          }}
+        />
       ) : null}
     </main>
   );

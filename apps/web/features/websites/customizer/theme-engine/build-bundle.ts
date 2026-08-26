@@ -555,7 +555,7 @@ const BOOTSTRAP_SCRIPT = `
         toolbarButton("up", "up", "Move up", function () { sendAction({ action: "moveSection", sectionId: meta.section.id, direction: "up" }); }, { disabled: meta.index === 0 }),
         toolbarButton("down", "down", "Move down", function () { sendAction({ action: "moveSection", sectionId: meta.section.id, direction: "down" }); }, { disabled: meta.index === meta.total - 1 }),
         React.createElement("span", { key: "sep2", className: "te-sep" }),
-        toolbarButton("add", "plus", "Add section after", function () { sendAction({ action: "addSection", group: meta.group, afterSectionId: meta.section.id }); }),
+        toolbarButton("add", "plus", "Add section after", function () { sendAction({ action: "requestAddSection", group: meta.group, afterSectionId: meta.section.id }); }),
         toolbarButton("dup", "copy", "Duplicate section", function () { sendAction({ action: "duplicateSection", sectionId: meta.section.id }); }),
         toolbarButton("toggle", meta.section.enabled ? "eye" : "eyeOff", meta.section.enabled ? "Hide section" : "Show section", function () { sendAction({ action: "toggleSection", sectionId: meta.section.id }); }),
         React.createElement("span", { key: "sep3", className: "te-sep" }),

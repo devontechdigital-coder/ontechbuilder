@@ -53,6 +53,8 @@ export type ThemeFrameAction =
   | { action: "deleteSection"; sectionId: string }
   | { action: "moveSection"; sectionId: string; direction: "up" | "down" }
   | { action: "addSection"; group: SectionGroupKey; schemaId?: string; afterSectionId?: string }
+  /** Canvas toolbar's "Add section after" — opens the same section-type picker the sidebar's own "+ Add section" does, rather than silently adding whatever the first schema in the group happens to be. */
+  | { action: "requestAddSection"; group: SectionGroupKey; afterSectionId?: string }
   /** The inline canvas editor's own field changes — same effect as editing the sidebar inspector. */
   | { action: "changeSectionSetting"; sectionId: string; controlId: string; value: unknown }
   /** Closes the inline canvas editor without changing what's selected in the sidebar. */

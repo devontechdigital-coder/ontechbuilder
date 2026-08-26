@@ -1,7 +1,7 @@
 "use client";
 
-import { Copy, Power, RotateCcw, Settings2, Trash2 } from "lucide-react";
-import { useMemo, type ReactNode } from "react";
+import { Copy, Link2, Power, RotateCcw, Settings2, Trash2, Unlink } from "lucide-react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -10,6 +10,7 @@ import {
 } from "../../../components/ui/dropdown-menu";
 import { Checkbox, Field, Input, Textarea } from "../../../components/ui/form";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../../components/ui/tabs";
+import { cn } from "../../../lib/utils";
 import { ColorField, ImageField, RangeField, SegmentedField, SelectField } from "./controls";
 import { DESIGN_FIELDS } from "./design-fields";
 import { isNestedLinksField, NestedLinksEditor } from "./nested-links-editor";
@@ -214,28 +215,136 @@ function SettingGroups({
       {groupSettings(control).map(([group, controls]) => (
         <section key={group} className="grid gap-3.5 rounded-lg border bg-surface-secondary/40 p-3">
           <h3 className="text-[11.5px] font-semibold uppercase tracking-[0.04em] text-muted-foreground">{group}</h3>
-          {controls.map((setting) => {
-            const isOverridden = values[setting.id] !== undefined;
-            return (
-              <div key={setting.id} className="relative">
-                <ThemeSettingControl control={setting} value={values[setting.id] ?? setting.default} onChange={(value) => onChange(setting.id, value)} />
-                {onReset && isOverridden ? (
-                  <button
-                    type="button"
-                    onClick={() => onReset(setting.id)}
-                    title={`Reset ${setting.label}`}
-                    aria-label={`Reset ${setting.label}`}
-                    className="absolute right-0 top-0 grid size-5 place-items-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                  >
-                    <RotateCcw className="size-3" />
-                  </button>
-                ) : null}
-              </div>
-            );
-          })}
+          {group === "Spacing" ? (
+            <SpacingFields controls={controls} values={values} onChange={onChange} {...(onReset ? { onReset } : {})} />
+          ) : (
+            controls.map((setting) => (
+              <SettingRow key={setting.id} setting={setting} values={values} onChange={onChange} {...(onReset ? { onReset } : {})} />
+            ))
+          )}
         </section>
       ))}
     </>
+  );
+}
+
+function SettingRow({
+  onChange,
+  onReset,
+  setting,
+  values,
+}: {
+  onChange: (id: string, value: unknown) => void;
+  onReset?: (id: string) => void;
+  setting: ThemeSetting;
+  values: Record<string, unknown>;
+}) {
+  const isOverridden = values[setting.id] !== undefined;
+  return (
+    <div className="relative">
+      <ThemeSettingControl control={setting} value={values[setting.id] ?? setting.default} onChange={(value) => onChange(setting.id, value)} />
+      {onReset && isOverridden ? (
+        <button
+          type="button"
+          onClick={() => onReset(setting.id)}
+          title={`Reset ${setting.label}`}
+          aria-label={`Reset ${setting.label}`}
+          className="absolute right-0 top-0 grid size-5 place-items-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <RotateCcw className="size-3" />
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Padding and margin each get their own link toggle: on, editing any one of the four sides
+ * (top/right/bottom/left) applies that same value to the other three — off, each side stays
+ * independent as usual. Purely a local editing convenience (which cluster is linked isn't
+ * persisted anywhere), scoped to design-fields.ts's Spacing group specifically since that's the
+ * one hardcoded set of paired directional fields the platform defines.
+ */
+function SpacingFields({
+  controls,
+  onChange,
+  onReset,
+  values,
+}: {
+  controls: ThemeSetting[];
+  onChange: (id: string, value: unknown) => void;
+  onReset?: (id: string) => void;
+  values: Record<string, unknown>;
+}) {
+  const paddingFields = controls.filter((setting) => setting.id.startsWith("designPadding"));
+  const marginFields = controls.filter((setting) => setting.id.startsWith("designMargin"));
+  const rest = controls.filter((setting) => !setting.id.startsWith("designPadding") && !setting.id.startsWith("designMargin"));
+
+  return (
+    <>
+      {paddingFields.length ? (
+        <LinkableSideGroup label="Padding" fields={paddingFields} values={values} onChange={onChange} {...(onReset ? { onReset } : {})} />
+      ) : null}
+      {marginFields.length ? (
+        <LinkableSideGroup label="Margin" fields={marginFields} values={values} onChange={onChange} {...(onReset ? { onReset } : {})} />
+      ) : null}
+      {rest.map((setting) => (
+        <SettingRow key={setting.id} setting={setting} values={values} onChange={onChange} {...(onReset ? { onReset } : {})} />
+      ))}
+    </>
+  );
+}
+
+function LinkableSideGroup({
+  fields,
+  label,
+  onChange,
+  onReset,
+  values,
+}: {
+  fields: ThemeSetting[];
+  label: string;
+  onChange: (id: string, value: unknown) => void;
+  onReset?: (id: string) => void;
+  values: Record<string, unknown>;
+}) {
+  const [linked, setLinked] = useState(false);
+
+  return (
+    <div className="grid gap-2.5">
+      <div className="flex items-center justify-between">
+        <p className="text-[11px] font-medium text-muted-foreground">{label}</p>
+        <button
+          type="button"
+          onClick={() => setLinked((current) => !current)}
+          title={linked ? "Editing one side now sets all four — click to edit sides independently" : "Click to edit one side and apply it to all four"}
+          aria-pressed={linked}
+          className={cn(
+            "flex items-center gap-1 rounded px-1.5 py-0.5 text-[10.5px] font-medium transition-colors",
+            linked ? "bg-info/15 text-info" : "text-muted-foreground hover:bg-muted hover:text-foreground",
+          )}
+        >
+          {linked ? <Link2 className="size-3" /> : <Unlink className="size-3" />}
+          {linked ? "Linked" : "Link sides"}
+        </button>
+      </div>
+      {fields.map((field) => (
+        <SettingRow
+          key={field.id}
+          setting={field}
+          values={values}
+          onChange={(id, value) => {
+            onChange(id, value);
+            if (linked) {
+              for (const sibling of fields) {
+                if (sibling.id !== id) onChange(sibling.id, value);
+              }
+            }
+          }}
+          {...(onReset ? { onReset } : {})}
+        />
+      ))}
+    </div>
   );
 }
 
