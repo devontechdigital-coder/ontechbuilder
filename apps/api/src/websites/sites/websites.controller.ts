@@ -124,6 +124,14 @@ export class WebsitesController {
       name: input.name,
       slug: input.slug,
       status: input.status,
+      faviconUrl: input.faviconUrl,
+      headCode: input.headCode,
+      bodyCode: input.bodyCode,
+      footerCode: input.footerCode,
+      searchEngineVisible: input.searchEngineVisible,
+      robotsTxtEnabled: input.robotsTxtEnabled,
+      robotsTxtContent: input.robotsTxtContent,
+      sitemapEnabled: input.sitemapEnabled,
     });
   }
 

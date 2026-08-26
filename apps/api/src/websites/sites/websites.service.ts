@@ -49,6 +49,14 @@ interface UpdateWebsiteInput {
   name?: unknown;
   slug?: unknown;
   status?: unknown;
+  faviconUrl?: unknown;
+  headCode?: unknown;
+  bodyCode?: unknown;
+  footerCode?: unknown;
+  searchEngineVisible?: unknown;
+  robotsTxtEnabled?: unknown;
+  robotsTxtContent?: unknown;
+  sitemapEnabled?: unknown;
 }
 
 interface CreateDomainInput {
@@ -320,6 +328,38 @@ export class WebsitesService {
 
     if (input.status !== undefined) {
       data.status = parseWebsiteStatus(input.status);
+    }
+
+    if (input.faviconUrl !== undefined) {
+      data.faviconUrl = parsePlainText(input.faviconUrl, "faviconUrl", 2000);
+    }
+
+    if (input.headCode !== undefined) {
+      data.headCode = parsePlainText(input.headCode, "headCode", MAX_CUSTOM_CODE_LENGTH);
+    }
+
+    if (input.bodyCode !== undefined) {
+      data.bodyCode = parsePlainText(input.bodyCode, "bodyCode", MAX_CUSTOM_CODE_LENGTH);
+    }
+
+    if (input.footerCode !== undefined) {
+      data.footerCode = parsePlainText(input.footerCode, "footerCode", MAX_CUSTOM_CODE_LENGTH);
+    }
+
+    if (input.searchEngineVisible !== undefined) {
+      data.searchEngineVisible = parseBooleanField(input.searchEngineVisible, "searchEngineVisible");
+    }
+
+    if (input.robotsTxtEnabled !== undefined) {
+      data.robotsTxtEnabled = parseBooleanField(input.robotsTxtEnabled, "robotsTxtEnabled");
+    }
+
+    if (input.robotsTxtContent !== undefined) {
+      data.robotsTxtContent = parsePlainText(input.robotsTxtContent, "robotsTxtContent", MAX_CUSTOM_CODE_LENGTH);
+    }
+
+    if (input.sitemapEnabled !== undefined) {
+      data.sitemapEnabled = parseBooleanField(input.sitemapEnabled, "sitemapEnabled");
     }
 
     if (!Object.keys(data).length) {
@@ -640,9 +680,32 @@ export const websiteSelect = {
   name: true,
   slug: true,
   status: true,
+  faviconUrl: true,
+  headCode: true,
+  bodyCode: true,
+  footerCode: true,
+  searchEngineVisible: true,
+  robotsTxtEnabled: true,
+  robotsTxtContent: true,
+  sitemapEnabled: true,
   createdAt: true,
   updatedAt: true,
 } satisfies Prisma.WebsiteSelect;
+
+/** 20,000 chars — plenty for a tracking snippet or two, not enough to become a real storage concern. Same cap as Form.customCss. */
+const MAX_CUSTOM_CODE_LENGTH = 20_000;
+
+function parsePlainText(value: unknown, field: string, maxLength: number): string {
+  if (value === undefined || value === null) return "";
+  if (typeof value !== "string") throw new BadRequestException(`${field} must be a string`);
+  if (value.length > maxLength) throw new BadRequestException(`${field} is too long`);
+  return value;
+}
+
+function parseBooleanField(value: unknown, field: string): boolean {
+  if (typeof value !== "boolean") throw new BadRequestException(`${field} must be a boolean`);
+  return value;
+}
 
 export const domainSelect = {
   id: true,

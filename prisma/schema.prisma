@@ -257,6 +257,19 @@ model Website {
   name       String
   slug       String
   status     WebsiteStatus @default(DRAFT)
+  /** Public site favicon URL — served as the <link rel="icon"> on every rendered page. */
+  faviconUrl String        @default("")
+  /** Merchant-authored HTML/JS injected verbatim, in order: headCode before </head>, bodyCode right after <body>, footerCode right before </body>. */
+  headCode   String        @default("")
+  bodyCode   String        @default("")
+  footerCode String        @default("")
+  /** When false, the renderer emits <meta name="robots" content="noindex,nofollow"> site-wide. */
+  searchEngineVisible Boolean @default(true)
+  /** When true, /robots.txt serves robotsTxtContent verbatim instead of the platform's generated default. */
+  robotsTxtEnabled    Boolean @default(false)
+  robotsTxtContent    String  @default("")
+  /** Whether /sitemap.xml is served at all. */
+  sitemapEnabled      Boolean @default(true)
   createdAt  DateTime      @default(now())
   updatedAt  DateTime      @updatedAt
 

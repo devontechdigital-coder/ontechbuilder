@@ -10,6 +10,14 @@ export interface WebsiteSummary {
   name: string;
   slug: string;
   status: "DRAFT" | "PUBLISHED" | "ARCHIVED";
+  faviconUrl: string;
+  headCode: string;
+  bodyCode: string;
+  footerCode: string;
+  searchEngineVisible: boolean;
+  robotsTxtEnabled: boolean;
+  robotsTxtContent: string;
+  sitemapEnabled: boolean;
   createdAt: string;
   updatedAt: string;
 }

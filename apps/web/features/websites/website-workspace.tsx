@@ -16,6 +16,7 @@ import { apiRequest } from "../../lib/api";
 import { cn } from "../../lib/utils";
 import type { ActiveTenant, SafeUser, TenantSummary } from "../auth/types";
 import { getTemplateDefinitions, isHomeTemplateId, type TemplateDefinition } from "./customizer/state";
+import { WebsiteSeoSettings } from "./website-seo-settings";
 import type {
   BlogCategorySummary,
   DomainSummary,
@@ -1622,6 +1623,10 @@ export function WebsiteWorkspace({
                 </div>
               </form>
             </Card>
+
+            {me?.activeTenant ? (
+              <WebsiteSeoSettings activeTenantId={me.activeTenant.id} website={website} onSaved={setWebsite} />
+            ) : null}
 
             <Card className="border-destructive/25 bg-destructive/[0.03]">
               <div className="flex items-start gap-3">
