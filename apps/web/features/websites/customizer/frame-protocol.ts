@@ -53,7 +53,15 @@ export type ThemeFrameAction =
   /** The inline canvas editor's own field changes — same effect as editing the sidebar inspector. */
   | { action: "changeSectionSetting"; sectionId: string; controlId: string; value: unknown }
   /** Closes the inline canvas editor without changing what's selected in the sidebar. */
-  | { action: "deselect" };
+  | { action: "deselect" }
+  /**
+   * A theme-authored <a> was clicked in the canvas — the grandchild always preventDefault()s real
+   * navigation there (it would otherwise navigate the sandboxed iframe away from the editor) and
+   * asks for this popup instead. x/y are the grandchild's own viewport coordinates, which map
+   * 1:1 onto theme-frame-page.tsx's viewport (the grandchild iframe fills it exactly), so this is
+   * handled directly there rather than relayed further up to the customizer page.
+   */
+  | { action: "showLinkPopup"; href: string; x: number; y: number };
 
 export type ThemeFrameActionMessage = {
   type: typeof THEME_FRAME_ACTION;

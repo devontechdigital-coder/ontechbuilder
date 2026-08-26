@@ -1,6 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
+import { ExternalLink, X } from "lucide-react";
 import { use, useEffect, useMemo, useRef, useState } from "react";
 import { apiRequest } from "../../lib/api";
 import type { ActiveTenant, SafeUser } from "../auth/types";
@@ -50,6 +51,13 @@ export function ThemeFramePage({ params }: { params: Promise<{ id: string; theme
   const { id: websiteId, themeId } = use(params);
   const [payload, setPayload] = useState<ThemeFrameUpdatePayload | null>(null);
   const [files, setFiles] = useState<Record<string, string> | null>(null);
+  /**
+   * A theme-authored link was clicked in the canvas — see build-bundle.ts's click handler, which
+   * preventDefault()s the real navigation and asks for this instead. x/y are the grandchild's own
+   * viewport coordinates, which map 1:1 onto this page's viewport (the grandchild iframe fills it
+   * exactly), so no coordinate translation is needed to position the popup here.
+   */
+  const [linkPopup, setLinkPopup] = useState<{ href: string; x: number; y: number } | null>(null);
   /**
    * Whether the theme's own file fetch has settled (success or failure) —
    * distinct from `usesEngine`, which is only meaningful once this is true.
@@ -188,6 +196,14 @@ export function ThemeFramePage({ params }: { params: Promise<{ id: string; theme
         return;
       }
       if (message.type === THEME_FRAME_ACTION) {
+        if (message.action === "showLinkPopup") {
+          setLinkPopup({ href: message.href, x: message.x, y: message.y });
+          return;
+        }
+        // Any other canvas interaction (selecting a different section/block, adding a section, ...)
+        // means the click that opened the popup is done with — close it rather than leave it
+        // pointing at a link the user has since clicked away from.
+        setLinkPopup(null);
         postToParent(message);
       }
     }
@@ -231,6 +247,7 @@ export function ThemeFramePage({ params }: { params: Promise<{ id: string; theme
         ) : (
           <FrameLoadingState error={loadError} />
         )}
+        {linkPopup ? <LinkPopup href={linkPopup.href} x={linkPopup.x} y={linkPopup.y} onClose={() => setLinkPopup(null)} /> : null}
       </div>
     );
   }
@@ -263,6 +280,57 @@ export function ThemeFramePage({ params }: { params: Promise<{ id: string; theme
         />
       ) : (
         <StaticSitePreview groups={payload.groups} page={payload.page} sectionSchemas={payload.sectionSchemas} settings={payload.settings} websiteName={payload.websiteName} />
+      )}
+    </div>
+  );
+}
+
+/**
+ * A real <a target="_blank"> so the click that opens it is a genuine user gesture on a real
+ * element — this page isn't sandboxed, unlike the grandchild the click originated in, so it can
+ * actually open a new tab. A JS window.open() call here, triggered from a postMessage handler
+ * rather than synchronously from the click itself, risks being treated as a popup by the browser
+ * and blocked; a real anchor never has that problem.
+ */
+function LinkPopup({ href, onClose, x, y }: { href: string; onClose: () => void; x: number; y: number }) {
+  const width = 280;
+  const height = 96;
+  const margin = 12;
+  const left = typeof window === "undefined" ? x : Math.min(Math.max(x, margin), window.innerWidth - width - margin);
+  const top = typeof window === "undefined" ? y + 12 : Math.min(y + 12, window.innerHeight - height - margin);
+
+  return (
+    <div
+      className="fixed z-[2147483647] grid gap-2 rounded-xl border border-white/10 bg-zinc-950/95 p-3 text-white shadow-2xl shadow-black/40 backdrop-blur"
+      style={{ left, top, width }}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <p className="min-w-0 flex-1 truncate text-[11.5px] font-medium text-white/60">{href || "(no link target)"}</p>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close"
+          className="grid size-5 shrink-0 place-items-center rounded text-white/60 transition-colors hover:bg-white/10 hover:text-white"
+        >
+          <X className="size-3.5" />
+        </button>
+      </div>
+      {href ? (
+        // No onClick handler here — unmounting this very anchor (which closing the popup would
+        // do) synchronously inside its own click handler races the browser's native "open in a
+        // new tab" action for that click and can silently suppress it. The close button next to
+        // it stays available if the popup should go away without opening the link.
+        <a
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center justify-center gap-1.5 rounded-lg bg-white/10 px-3 py-1.5 text-[12.5px] font-medium text-white transition-colors hover:bg-white/20"
+        >
+          <ExternalLink className="size-3.5" />
+          Open link
+        </a>
+      ) : (
+        <p className="text-[11.5px] text-white/50">This link has no destination set.</p>
       )}
     </div>
   );

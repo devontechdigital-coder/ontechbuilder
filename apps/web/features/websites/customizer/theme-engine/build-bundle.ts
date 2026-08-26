@@ -736,6 +736,22 @@ const BOOTSTRAP_SCRIPT = `
         console.log("[theme-engine] click ignored: not editable");
         return;
       }
+
+      // A theme-authored link would otherwise navigate this iframe away from
+      // whatever's being edited (or, for an external href, just do nothing —
+      // this iframe has no allow-popups) — either way it breaks the editing
+      // session. Stop it here and hand off to the parent's own link popup
+      // instead, which is a real anchor tag it can actually open a tab from.
+      var anchor = event.target.closest ? event.target.closest("a[href]") : null;
+      if (anchor) {
+        event.preventDefault();
+        window.parent.postMessage(
+          { type: "themeFrame:action", action: "showLinkPopup", href: anchor.getAttribute("href") || "", x: event.clientX, y: event.clientY },
+          parentOrigin,
+        );
+        return;
+      }
+
       var el = event.target;
       var blockId = null;
       while (el && el !== document.body) {

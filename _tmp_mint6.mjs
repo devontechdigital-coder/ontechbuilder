@@ -1,0 +1,12 @@
+import { PrismaClient } from "@prisma/client";
+import { randomBytes, createHash } from "node:crypto";
+const prisma = new PrismaClient();
+const websiteId = "bf32ed83-8ca5-445b-aa2f-eaad73d1b6cb";
+const website = await prisma.website.findUnique({ where: { id: websiteId }, select: { tenantId: true } });
+const member = await prisma.tenantMember.findFirst({ where: { tenantId: website.tenantId, status: "ACTIVE" }, select: { userId: true } });
+const token = randomBytes(32).toString("base64url");
+const tokenHash = createHash("sha256").update(token).digest("hex");
+const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+await prisma.session.create({ data: { userId: member.userId, tokenHash, activeTenantId: website.tenantId, expiresAt } });
+console.log("TOKEN:", token);
+await prisma.$disconnect();
