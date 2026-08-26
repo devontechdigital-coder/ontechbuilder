@@ -1,6 +1,6 @@
 "use client";
 
-import { Copy, Link2, Power, RotateCcw, Settings2, Trash2, Unlink } from "lucide-react";
+import { Copy, Link2, Power, RotateCcw, Settings2, Trash2 } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 import {
   DropdownMenu,
@@ -260,10 +260,11 @@ function SettingRow({
 
 /**
  * Padding and margin each get their own link toggle: on, editing any one of the four sides
- * (top/right/bottom/left) applies that same value to the other three — off, each side stays
- * independent as usual. Purely a local editing convenience (which cluster is linked isn't
- * persisted anywhere), scoped to design-fields.ts's Spacing group specifically since that's the
- * one hardcoded set of paired directional fields the platform defines.
+ * applies that same value to the other three — off, each side stays independent as usual.
+ * Purely a local editing convenience (which cluster is linked isn't persisted anywhere), scoped
+ * to design-fields.ts's Spacing group specifically since that's the one hardcoded set of paired
+ * directional fields the platform defines. Margin renders first to match the box-model mental
+ * model (margin is the outer edge) even though design-fields.ts declares padding first.
  */
 function SpacingFields({
   controls,
@@ -282,17 +283,23 @@ function SpacingFields({
 
   return (
     <>
-      {paddingFields.length ? (
-        <LinkableSideGroup label="Padding" fields={paddingFields} values={values} onChange={onChange} {...(onReset ? { onReset } : {})} />
-      ) : null}
       {marginFields.length ? (
         <LinkableSideGroup label="Margin" fields={marginFields} values={values} onChange={onChange} {...(onReset ? { onReset } : {})} />
+      ) : null}
+      {paddingFields.length && marginFields.length ? <div className="border-t" /> : null}
+      {paddingFields.length ? (
+        <LinkableSideGroup label="Padding" fields={paddingFields} values={values} onChange={onChange} {...(onReset ? { onReset } : {})} />
       ) : null}
       {rest.map((setting) => (
         <SettingRow key={setting.id} setting={setting} values={values} onChange={onChange} {...(onReset ? { onReset } : {})} />
       ))}
     </>
   );
+}
+
+/** Top/Right/Bottom/Left, in the 2x2 reading order the reference UI uses — independent of whatever order design-fields.ts happens to declare the four ids in. */
+function bySide(fields: ThemeSetting[], side: "top" | "right" | "bottom" | "left") {
+  return fields.find((field) => field.id.toLowerCase().endsWith(side));
 }
 
 function LinkableSideGroup({
@@ -309,41 +316,71 @@ function LinkableSideGroup({
   values: Record<string, unknown>;
 }) {
   const [linked, setLinked] = useState(false);
+  const ordered = (["top", "right", "bottom", "left"] as const)
+    .map((side) => bySide(fields, side))
+    .filter((field): field is ThemeSetting => Boolean(field));
+
+  function handleChange(id: string, value: number) {
+    onChange(id, value);
+    if (linked) {
+      for (const sibling of fields) {
+        if (sibling.id !== id) onChange(sibling.id, value);
+      }
+    }
+  }
 
   return (
     <div className="grid gap-2.5">
       <div className="flex items-center justify-between">
-        <p className="text-[11px] font-medium text-muted-foreground">{label}</p>
+        <p className="text-[12.5px] font-medium text-foreground">{label}</p>
         <button
           type="button"
           onClick={() => setLinked((current) => !current)}
           title={linked ? "Editing one side now sets all four — click to edit sides independently" : "Click to edit one side and apply it to all four"}
           aria-pressed={linked}
           className={cn(
-            "flex items-center gap-1 rounded px-1.5 py-0.5 text-[10.5px] font-medium transition-colors",
-            linked ? "bg-info/15 text-info" : "text-muted-foreground hover:bg-muted hover:text-foreground",
+            "grid size-6 shrink-0 place-items-center rounded-md border transition-colors",
+            linked ? "border-info/50 bg-info/10 text-info" : "border-input text-muted-foreground hover:bg-muted hover:text-foreground",
           )}
         >
-          {linked ? <Link2 className="size-3" /> : <Unlink className="size-3" />}
-          {linked ? "Linked" : "Link sides"}
+          <Link2 className="size-3.5" />
         </button>
       </div>
-      {fields.map((field) => (
-        <SettingRow
-          key={field.id}
-          setting={field}
-          values={values}
-          onChange={(id, value) => {
-            onChange(id, value);
-            if (linked) {
-              for (const sibling of fields) {
-                if (sibling.id !== id) onChange(sibling.id, value);
-              }
-            }
-          }}
-          {...(onReset ? { onReset } : {})}
-        />
-      ))}
+      <div className="grid grid-cols-2 gap-x-2.5 gap-y-3">
+        {ordered.map((field) => {
+          const isOverridden = values[field.id] !== undefined;
+          const shortLabel = field.label.replace(new RegExp(`^${label}\\s+`, "i"), "") || field.label;
+          return (
+            <div key={field.id} className="grid gap-1">
+              <div className="flex items-center justify-between">
+                <label className="text-[11.5px] font-medium capitalize text-foreground">{shortLabel}</label>
+                {onReset && isOverridden ? (
+                  <button
+                    type="button"
+                    onClick={() => onReset(field.id)}
+                    title={`Reset ${field.label}`}
+                    aria-label={`Reset ${field.label}`}
+                    className="grid size-4 place-items-center rounded text-muted-foreground/70 transition-colors hover:bg-muted hover:text-foreground"
+                  >
+                    <RotateCcw className="size-2.5" />
+                  </button>
+                ) : null}
+              </div>
+              <div className="flex items-center rounded-md border border-input bg-surface pl-2.5 pr-2 shadow-sm shadow-slate-950/5 focus-within:border-foreground/30 focus-within:ring-2 focus-within:ring-ring/15">
+                <input
+                  type="number"
+                  min={field.min ?? -1000}
+                  max={field.max ?? 1000}
+                  value={Number(values[field.id] ?? field.default ?? 0)}
+                  onChange={(event) => handleChange(field.id, Number(event.target.value))}
+                  className="min-w-0 flex-1 bg-transparent py-1.5 text-[12.5px] text-foreground outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                />
+                <span className="shrink-0 text-[10.5px] font-medium uppercase text-muted-foreground">{field.unit ?? "px"}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
