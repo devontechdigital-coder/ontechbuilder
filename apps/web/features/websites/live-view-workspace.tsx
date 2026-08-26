@@ -3,7 +3,7 @@
 import createGlobe from "cobe";
 import type { Globe } from "cobe";
 import { Radio, Users } from "lucide-react";
-import { use, useEffect, useRef, useState } from "react";
+import { use, useEffect, useMemo, useRef, useState } from "react";
 import { DashboardShell } from "../../components/layout/dashboard-shell";
 import { Alert, Card, LoadingState, SectionHeader } from "../../components/ui/display";
 import { apiRequest } from "../../lib/api";
@@ -208,6 +208,11 @@ export function LiveViewWorkspace({ params }: { params: Promise<{ id: string }> 
     await loadLiveView(response.activeTenant);
   }
 
+  const maxLocationCount = useMemo(
+    () => Math.max(1, ...(data?.sessionsByLocation.map((row) => row.count) ?? [1])),
+    [data?.sessionsByLocation],
+  );
+
   if (!me || !website) {
     if (hasLoadedDashboardShell && me) {
       return (
@@ -244,45 +249,71 @@ export function LiveViewWorkspace({ params }: { params: Promise<{ id: string }> 
     >
       {error ? <Alert>{error}</Alert> : null}
 
-      <div className="grid items-start gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
+      <div className="grid items-start gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
         <div className="grid content-start gap-4">
-          <Card>
-            <div className="flex items-center gap-2">
+          {/* Hero panel: live status + the two headline numbers, unified */}
+          <Card className="relative overflow-hidden !p-0">
+            <div className="flex items-center gap-2 border-b border-border/60 bg-muted/30 px-4 py-3">
               <span className="relative flex size-2">
                 <span className="absolute inline-flex size-full animate-ping rounded-full bg-success opacity-75" />
                 <span className="relative inline-flex size-2 rounded-full bg-success" />
               </span>
-              <p className="text-[12px] font-semibold text-muted-foreground">Live</p>
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Live
+              </p>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-accent/10 text-accent">
-                <Users className="size-4.5" />
-              </span>
-              <div>
-                <p className="text-[12px] font-medium text-muted-foreground">Visitors right now</p>
-                <p className="text-[22px] font-semibold leading-tight text-foreground">{data?.visitorsRightNow ?? 0}</p>
+
+            <div className="grid gap-4 px-4 py-4">
+              <div className="flex items-center gap-3">
+                <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-accent/20 to-accent/5 text-accent ring-1 ring-accent/10">
+                  <Users className="size-5" />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-[12px] font-medium text-muted-foreground">Visitors right now</p>
+                  <p className="text-[32px] font-semibold leading-none tracking-tight text-foreground tabular-nums">
+                    {data?.visitorsRightNow ?? 0}
+                  </p>
+                </div>
+              </div>
+
+              <div className="h-px bg-border/60" />
+
+              <div className="flex items-center gap-3">
+                <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-info/10 text-info">
+                  <Radio className="size-4.5" />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-[12px] font-medium text-muted-foreground">Sessions today</p>
+                  <p className="text-[20px] font-semibold leading-tight text-foreground tabular-nums">
+                    {data?.sessionsToday ?? 0}
+                  </p>
+                </div>
               </div>
             </div>
           </Card>
-          <Card>
-            <div className="flex items-center gap-2">
-              <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-info/10 text-info">
-                <Radio className="size-4.5" />
-              </span>
-              <div>
-                <p className="text-[12px] font-medium text-muted-foreground">Sessions today</p>
-                <p className="text-[22px] font-semibold leading-tight text-foreground">{data?.sessionsToday ?? 0}</p>
-              </div>
-            </div>
-          </Card>
-          <Card>
+
+          <Card className="transition-shadow hover:shadow-sm">
             <SectionHeader title="Sessions by location" />
             {data?.sessionsByLocation.length ? (
-              <div className="grid gap-2">
-                {data.sessionsByLocation.map((row) => (
-                  <div key={row.label} className="flex items-center justify-between gap-2 text-[12px]">
-                    <span className="min-w-0 truncate font-medium text-foreground">{row.label}</span>
-                    <span className="shrink-0 text-muted-foreground">{row.count}</span>
+              <div className="grid gap-1.5">
+                {data.sessionsByLocation.map((row, index) => (
+                  <div
+                    key={row.label}
+                    className="group relative overflow-hidden rounded-md px-2 py-1.5 transition-colors hover:bg-muted/40"
+                  >
+                    <div
+                      className="absolute inset-y-0 left-0 rounded-md bg-accent/10 transition-all group-hover:bg-accent/15"
+                      style={{ width: `${Math.max(6, (row.count / maxLocationCount) * 100)}%` }}
+                    />
+                    <div className="relative flex items-center justify-between gap-2 text-[12px]">
+                      <span className="flex min-w-0 items-center gap-2">
+                        <span className="w-4 shrink-0 text-right font-mono text-[10px] text-muted-foreground/70">
+                          {index + 1}
+                        </span>
+                        <span className="min-w-0 truncate font-medium text-foreground">{row.label}</span>
+                      </span>
+                      <span className="shrink-0 tabular-nums font-semibold text-foreground">{row.count}</span>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -292,9 +323,30 @@ export function LiveViewWorkspace({ params }: { params: Promise<{ id: string }> 
           </Card>
         </div>
 
-        <Card className="grid min-h-[520px] place-items-center overflow-hidden !p-0">
-          <div ref={setGlobeFrame} className="relative aspect-square w-[480px] max-w-full">
-            <canvas ref={setCanvasEl} className="absolute inset-0 size-full" />
+        <Card className="relative grid min-h-[520px] place-items-center overflow-hidden !p-0">
+          {/* Ambient glow behind the globe for depth, using the existing accent color */}
+          <div
+            className="pointer-events-none absolute inset-0 opacity-40"
+            style={{
+              background:
+                "radial-gradient(circle at center, color-mix(in srgb, var(--accent) 18%, transparent) 0%, transparent 65%)",
+            }}
+          />
+
+          <div className="relative aspect-square w-[480px] max-w-full">
+         <div ref={setGlobeFrame} className="relative aspect-square w-[480px] max-w-full">
+    <canvas ref={setCanvasEl} className="absolute inset-0 size-full" />
+  </div>
+
+            <div className="absolute left-2 top-2 flex items-center gap-1.5 rounded-full border border-border/60 bg-background/80 px-2.5 py-1 backdrop-blur-sm">
+              <span className="relative flex size-1.5">
+                <span className="absolute inline-flex size-full animate-ping rounded-full bg-success opacity-75" />
+                <span className="relative inline-flex size-1.5 rounded-full bg-success" />
+              </span>
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                {data?.visitorsRightNow ?? 0} live
+              </span>
+            </div>
           </div>
         </Card>
       </div>

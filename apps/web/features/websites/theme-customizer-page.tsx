@@ -110,17 +110,22 @@ export function ThemeCustomizerPage({
           router.push("/login");
           return;
         }
-        const [websiteResponse, themesResponse, draftResponse, pagesResponse] = await Promise.all([
+        const [websiteResponse, themesResponse, draftResponse, pagesResponse, blogsResponse] = await Promise.all([
           apiRequest<WebsiteSummary>(`/tenants/${meResponse.activeTenant.id}/websites/${websiteId}`),
           apiRequest<ThemeInstallationSummary[]>(`/tenants/${meResponse.activeTenant.id}/websites/${websiteId}/themes`),
           apiRequest<ThemeDraftSummary>(`/tenants/${meResponse.activeTenant.id}/websites/${websiteId}/themes/${themeId}/draft`),
+          // /pages defaults to kind=page only (see pages.service.ts's parseOptionalPageKind), so a
+          // blog post's id would never turn up in pageOptions without this — /builder/blog/{id}
+          // would silently fall back to the first page option (the homepage) instead of the real
+          // blog post, since resolvePageTemplateId+the initialPageId sync below both key off this list.
           apiRequest<PageSummary[]>(`/websites/${websiteId}/pages`),
+          apiRequest<PageSummary[]>(`/websites/${websiteId}/blogs`),
         ]);
         setWebsite(websiteResponse);
         setTheme(themesResponse.find((item) => item.id === themeId) ?? null);
         setDraft(draftResponse);
         resetSettings(draftResponse.settings);
-        setPages(pagesResponse);
+        setPages([...pagesResponse, ...blogsResponse]);
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Theme customizer failed to load");
       }
