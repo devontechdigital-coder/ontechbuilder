@@ -93,22 +93,30 @@ const BOOTSTRAP_SCRIPT = `
     return mod.exports;
   }
 
-  function flattenBlock(block) {
-    // depth carries the drag-assigned nav hierarchy through to the theme,
-    // which rebuilds the tree from this flat list.
-    var flat = { id: block.id, type: block.type, depth: block.depth || 0 };
-    for (var key in block.settings) if (Object.prototype.hasOwnProperty.call(block.settings, key)) flat[key] = block.settings[key];
-    return flat;
-  }
-
   // "design" + capital letter (designPaddingTop, designBgColor, ...) is the
-  // reserved prefix for the universal Design tab's fields (see
-  // SECTION_DESIGN_FIELDS in customizer/design-fields.ts) — platform-injected
-  // CSS overrides the theme itself has no schema entry for and never asked to
-  // receive, so they're applied via generated CSS (applyDesignStyles) instead
-  // of being spread in here like an ordinary setting.
+  // reserved prefix for the universal Design tab's fields (see DESIGN_FIELDS
+  // in customizer/design-fields.ts, shared by both the section and block
+  // Design tabs) — platform-injected CSS overrides the theme itself has no
+  // schema entry for and never asked to receive, so they're applied via
+  // generated CSS (applyDesignStyles) instead of being spread in here like an
+  // ordinary setting.
   function isDesignKey(key) {
     return key.length > 6 && key.slice(0, 6) === "design" && key.charAt(6) === key.charAt(6).toUpperCase();
+  }
+
+  function flattenBlock(block) {
+    // depth carries the drag-assigned nav hierarchy through to the theme,
+    // which rebuilds the tree from this flat list. Design-tab keys are
+    // stripped the same way buildSectionProps strips them for sections —
+    // they're platform CSS overrides (applyDesignStyles), never a real prop
+    // the theme's own block component asked for.
+    var flat = { id: block.id, type: block.type, depth: block.depth || 0 };
+    for (var key in block.settings) {
+      if (!Object.prototype.hasOwnProperty.call(block.settings, key)) continue;
+      if (isDesignKey(key)) continue;
+      flat[key] = block.settings[key];
+    }
+    return flat;
   }
 
   function buildSectionProps(section) {
@@ -384,6 +392,66 @@ const BOOTSTRAP_SCRIPT = `
   }
 
   var designStyleEl = null;
+
+  // Shared between sections and blocks — both carry the exact same design*
+  // keys (see DESIGN_FIELDS in customizer/design-fields.ts, used by both the
+  // section and block Design tabs), so the CSS they generate only differs by
+  // which selector scopes it.
+  function buildDesignRules(sel, s) {
+    var rules = [];
+
+    var boxDecls = [];
+    if (s.designPaddingTop != null) boxDecls.push("padding-top:" + s.designPaddingTop + "px");
+    if (s.designPaddingRight != null) boxDecls.push("padding-right:" + s.designPaddingRight + "px");
+    if (s.designPaddingBottom != null) boxDecls.push("padding-bottom:" + s.designPaddingBottom + "px");
+    if (s.designPaddingLeft != null) boxDecls.push("padding-left:" + s.designPaddingLeft + "px");
+    if (s.designMarginTop != null) boxDecls.push("margin-top:" + s.designMarginTop + "px");
+    if (s.designMarginBottom != null) boxDecls.push("margin-bottom:" + s.designMarginBottom + "px");
+    if (s.designMarginLeft != null) boxDecls.push("margin-left:" + s.designMarginLeft + "px");
+    if (s.designMarginRight != null) boxDecls.push("margin-right:" + s.designMarginRight + "px");
+    if (s.designWidth != null) boxDecls.push("width:" + s.designWidth + "px");
+    if (s.designMinWidth != null) boxDecls.push("min-width:" + s.designMinWidth + "px");
+    if (s.designMaxWidth != null) boxDecls.push("max-width:" + s.designMaxWidth + "px");
+    if (s.designHeight != null) boxDecls.push("height:" + s.designHeight + "px");
+    if (s.designMinHeight != null) boxDecls.push("min-height:" + s.designMinHeight + "px");
+    if (s.designMaxHeight != null) boxDecls.push("max-height:" + s.designMaxHeight + "px");
+    if (s.designBorderWidth != null) boxDecls.push("border-width:" + s.designBorderWidth + "px");
+    if (s.designBorderStyle) boxDecls.push("border-style:" + s.designBorderStyle);
+    if (s.designBorderColor) boxDecls.push("border-color:" + s.designBorderColor);
+    if (s.designBorderRadius != null) boxDecls.push("border-radius:" + s.designBorderRadius + "px");
+    if (s.designBgColor) boxDecls.push("background-color:" + s.designBgColor);
+    var bgImage = s.designBgImage && typeof s.designBgImage === "object" ? s.designBgImage.src : "";
+    if (bgImage) boxDecls.push("background-image:url(" + JSON.stringify(bgImage) + ")");
+    if (s.designBgSize) boxDecls.push("background-size:" + s.designBgSize);
+    if (s.designBgAttachment) boxDecls.push("background-attachment:" + s.designBgAttachment);
+    // border-box so a width/height and a border/padding set together behave the way the sliders
+    // suggest (border added inside the declared box) instead of silently growing past it.
+    if (boxDecls.length) rules.push(sel + " > * {" + boxDecls.join(";") + ";box-sizing:border-box;}");
+
+    var allDecls = [];
+    if (s.designAllFontFamily) allDecls.push("font-family:" + s.designAllFontFamily);
+    if (s.designAllFontSize != null) allDecls.push("font-size:" + s.designAllFontSize + "px");
+    if (s.designAllFontWeight) allDecls.push("font-weight:" + s.designAllFontWeight);
+    if (s.designAllColor) allDecls.push("color:" + s.designAllColor);
+    if (allDecls.length) rules.push(sel + ", " + sel + " * {" + allDecls.join(";") + ";}");
+
+    var headingDecls = [];
+    if (s.designHeadingFontFamily) headingDecls.push("font-family:" + s.designHeadingFontFamily);
+    if (s.designHeadingFontSize != null) headingDecls.push("font-size:" + s.designHeadingFontSize + "px");
+    if (s.designHeadingFontWeight) headingDecls.push("font-weight:" + s.designHeadingFontWeight);
+    if (s.designHeadingColor) headingDecls.push("color:" + s.designHeadingColor);
+    if (headingDecls.length) rules.push(sel + " h1, " + sel + " h2, " + sel + " h3, " + sel + " h4 {" + headingDecls.join(";") + ";}");
+
+    var paraDecls = [];
+    if (s.designParagraphFontFamily) paraDecls.push("font-family:" + s.designParagraphFontFamily);
+    if (s.designParagraphFontSize != null) paraDecls.push("font-size:" + s.designParagraphFontSize + "px");
+    if (s.designParagraphFontWeight) paraDecls.push("font-weight:" + s.designParagraphFontWeight);
+    if (s.designParagraphColor) paraDecls.push("color:" + s.designParagraphColor);
+    if (paraDecls.length) rules.push(sel + " p {" + paraDecls.join(";") + ";}");
+
+    return rules;
+  }
+
   function applyDesignStyles(payload) {
     if (!designStyleEl) {
       designStyleEl = document.createElement("style");
@@ -394,43 +462,15 @@ const BOOTSTRAP_SCRIPT = `
     var allSections = [].concat(payload.groups.header, payload.groups.template, payload.groups.footer);
     for (var i = 0; i < allSections.length; i++) {
       var section = allSections[i];
-      var s = section.settings || {};
-      var sel = '[data-theme-section-id="' + cssEscapeId(section.id) + '"]';
+      var sectionSel = '[data-theme-section-id="' + cssEscapeId(section.id) + '"]';
+      rules = rules.concat(buildDesignRules(sectionSel, section.settings || {}));
 
-      var boxDecls = [];
-      if (s.designPaddingTop != null) boxDecls.push("padding-top:" + s.designPaddingTop + "px");
-      if (s.designPaddingRight != null) boxDecls.push("padding-right:" + s.designPaddingRight + "px");
-      if (s.designPaddingBottom != null) boxDecls.push("padding-bottom:" + s.designPaddingBottom + "px");
-      if (s.designPaddingLeft != null) boxDecls.push("padding-left:" + s.designPaddingLeft + "px");
-      if (s.designMarginTop != null) boxDecls.push("margin-top:" + s.designMarginTop + "px");
-      if (s.designMarginBottom != null) boxDecls.push("margin-bottom:" + s.designMarginBottom + "px");
-      if (s.designBgColor) boxDecls.push("background-color:" + s.designBgColor);
-      var bgImage = s.designBgImage && typeof s.designBgImage === "object" ? s.designBgImage.src : "";
-      if (bgImage) boxDecls.push("background-image:url(" + JSON.stringify(bgImage) + ")");
-      if (s.designBgSize) boxDecls.push("background-size:" + s.designBgSize);
-      if (s.designBgAttachment) boxDecls.push("background-attachment:" + s.designBgAttachment);
-      if (boxDecls.length) rules.push(sel + " > * {" + boxDecls.join(";") + ";}");
-
-      var allDecls = [];
-      if (s.designAllFontFamily) allDecls.push("font-family:" + s.designAllFontFamily);
-      if (s.designAllFontSize != null) allDecls.push("font-size:" + s.designAllFontSize + "px");
-      if (s.designAllFontWeight) allDecls.push("font-weight:" + s.designAllFontWeight);
-      if (s.designAllColor) allDecls.push("color:" + s.designAllColor);
-      if (allDecls.length) rules.push(sel + ", " + sel + " * {" + allDecls.join(";") + ";}");
-
-      var headingDecls = [];
-      if (s.designHeadingFontFamily) headingDecls.push("font-family:" + s.designHeadingFontFamily);
-      if (s.designHeadingFontSize != null) headingDecls.push("font-size:" + s.designHeadingFontSize + "px");
-      if (s.designHeadingFontWeight) headingDecls.push("font-weight:" + s.designHeadingFontWeight);
-      if (s.designHeadingColor) headingDecls.push("color:" + s.designHeadingColor);
-      if (headingDecls.length) rules.push(sel + " h1, " + sel + " h2, " + sel + " h3, " + sel + " h4 {" + headingDecls.join(";") + ";}");
-
-      var paraDecls = [];
-      if (s.designParagraphFontFamily) paraDecls.push("font-family:" + s.designParagraphFontFamily);
-      if (s.designParagraphFontSize != null) paraDecls.push("font-size:" + s.designParagraphFontSize + "px");
-      if (s.designParagraphFontWeight) paraDecls.push("font-weight:" + s.designParagraphFontWeight);
-      if (s.designParagraphColor) paraDecls.push("color:" + s.designParagraphColor);
-      if (paraDecls.length) rules.push(sel + " p {" + paraDecls.join(";") + ";}");
+      var blocks = section.blocks || [];
+      for (var j = 0; j < blocks.length; j++) {
+        var block = blocks[j];
+        var blockSel = '[data-theme-block-id="' + cssEscapeId(block.id) + '"]';
+        rules = rules.concat(buildDesignRules(blockSel, block.settings || {}));
+      }
     }
     designStyleEl.textContent = rules.join(" ");
   }
@@ -706,7 +746,11 @@ const BOOTSTRAP_SCRIPT = `
         var sectionId = el.getAttribute && el.getAttribute("data-theme-section-id");
         if (sectionId) {
           console.log("[theme-engine] click matched section=", sectionId, "block=", blockId);
-          window.parent.postMessage({ type: "themeFrame:action", action: "selectSection", sectionId: sectionId }, parentOrigin);
+          if (blockId) {
+            window.parent.postMessage({ type: "themeFrame:action", action: "selectBlock", sectionId: sectionId, blockId: blockId }, parentOrigin);
+          } else {
+            window.parent.postMessage({ type: "themeFrame:action", action: "selectSection", sectionId: sectionId }, parentOrigin);
+          }
           return;
         }
         el = el.parentElement;

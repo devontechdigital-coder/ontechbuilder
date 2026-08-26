@@ -1,6 +1,6 @@
 "use client";
 
-import { Copy, Power, Settings2, Trash2 } from "lucide-react";
+import { Copy, Power, RotateCcw, Settings2, Trash2 } from "lucide-react";
 import { useMemo, type ReactNode } from "react";
 import {
   DropdownMenu,
@@ -11,7 +11,7 @@ import {
 import { Checkbox, Field, Input, Textarea } from "../../../components/ui/form";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../../components/ui/tabs";
 import { ColorField, ImageField, RangeField, SegmentedField, SelectField } from "./controls";
-import { SECTION_DESIGN_FIELDS } from "./design-fields";
+import { DESIGN_FIELDS } from "./design-fields";
 import { isNestedLinksField, NestedLinksEditor } from "./nested-links-editor";
 import { groupSettings } from "./state";
 import type { SectionGroups, SectionSchema, SelectedItem, ThemeSetting } from "./types";
@@ -54,10 +54,11 @@ export function CustomizerInspector({
   // three "Font family" fields start with empty options — filled in here from whichever global
   // setting already resolved one (see schema-parser.ts's cross-file options resolution), same
   // list Theme settings' own Heading/Body font pickers show, instead of a bare free-text input.
-  const sectionDesignFields = useMemo(() => {
+  // Shared as-is by both the section and block Design tabs below.
+  const designFields = useMemo(() => {
     const fontOptions = globalSchema.find((setting) => /font$/i.test(setting.id) && (setting.options?.length ?? 0) > 0)?.options ?? [];
-    if (!fontOptions.length) return SECTION_DESIGN_FIELDS;
-    return SECTION_DESIGN_FIELDS.map((field) => (field.id.endsWith("FontFamily") ? { ...field, options: fontOptions } : field));
+    if (!fontOptions.length) return DESIGN_FIELDS;
+    return DESIGN_FIELDS.map((field) => (field.id.endsWith("FontFamily") ? { ...field, options: fontOptions } : field));
   }, [globalSchema]);
 
   if (selected.kind === "theme") {
@@ -102,7 +103,12 @@ export function CustomizerInspector({
             )}
           </TabsContent>
           <TabsContent value="design">
-            <SettingGroups control={sectionDesignFields} values={section.settings} onChange={(id, value) => onChangeSectionSetting(section.id, id, value)} />
+            <SettingGroups
+              control={designFields}
+              values={section.settings}
+              onChange={(id, value) => onChangeSectionSetting(section.id, id, value)}
+              onReset={(id) => onChangeSectionSetting(section.id, id, undefined)}
+            />
           </TabsContent>
         </Tabs>
       </div>
@@ -119,16 +125,32 @@ export function CustomizerInspector({
     // Keyed by block.id: NestedLinksEditor below keeps its own drag/edit state internally rather
     // than re-deriving it from `value` on every keystroke, so without this key switching to a
     // different block would leave the previous block's rows on screen instead of the new one's.
-    <div key={block.id} className="grid gap-4 p-3">
+    <div key={block.id} className="grid gap-3 p-3">
       <InspectorHeader
         title={block.name}
         menu={<RowActionMenu onDelete={() => onDeleteBlock(section.id, block.id)} onDuplicate={() => onDuplicateBlock(section.id, block.id)} />}
       />
-      {blockSchema?.settings.length ? (
-        <SettingGroups control={blockSchema.settings} values={block.settings} onChange={(id, value) => onChangeBlockSetting(section.id, block.id, id, value)} />
-      ) : (
-        <p className="text-[12.5px] text-muted-foreground">This block has no settings.</p>
-      )}
+      <Tabs key={block.id} defaultValue="content">
+        <TabsList>
+          <TabsTrigger value="content">Content</TabsTrigger>
+          <TabsTrigger value="design">Design</TabsTrigger>
+        </TabsList>
+        <TabsContent value="content">
+          {blockSchema?.settings.length ? (
+            <SettingGroups control={blockSchema.settings} values={block.settings} onChange={(id, value) => onChangeBlockSetting(section.id, block.id, id, value)} />
+          ) : (
+            <p className="text-[12.5px] text-muted-foreground">This block has no settings.</p>
+          )}
+        </TabsContent>
+        <TabsContent value="design">
+          <SettingGroups
+            control={designFields}
+            values={block.settings}
+            onChange={(id, value) => onChangeBlockSetting(section.id, block.id, id, value)}
+            onReset={(id) => onChangeBlockSetting(section.id, block.id, id, undefined)}
+          />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
@@ -175,15 +197,42 @@ function RowActionMenu({ onDelete, onDuplicate, onToggle, visible }: { onDelete:
   );
 }
 
-function SettingGroups({ control, onChange, values }: { control: ThemeSetting[]; onChange: (id: string, value: unknown) => void; values: Record<string, unknown> }) {
+function SettingGroups({
+  control,
+  onChange,
+  onReset,
+  values,
+}: {
+  control: ThemeSetting[];
+  onChange: (id: string, value: unknown) => void;
+  /** Only passed for Design-tab fields — lets each field clear its override back to the theme's own default instead of just showing one. */
+  onReset?: (id: string) => void;
+  values: Record<string, unknown>;
+}) {
   return (
     <>
       {groupSettings(control).map(([group, controls]) => (
         <section key={group} className="grid gap-3.5 rounded-lg border bg-surface-secondary/40 p-3">
           <h3 className="text-[11.5px] font-semibold uppercase tracking-[0.04em] text-muted-foreground">{group}</h3>
-          {controls.map((setting) => (
-            <ThemeSettingControl key={setting.id} control={setting} value={values[setting.id] ?? setting.default} onChange={(value) => onChange(setting.id, value)} />
-          ))}
+          {controls.map((setting) => {
+            const isOverridden = values[setting.id] !== undefined;
+            return (
+              <div key={setting.id} className="relative">
+                <ThemeSettingControl control={setting} value={values[setting.id] ?? setting.default} onChange={(value) => onChange(setting.id, value)} />
+                {onReset && isOverridden ? (
+                  <button
+                    type="button"
+                    onClick={() => onReset(setting.id)}
+                    title={`Reset ${setting.label}`}
+                    aria-label={`Reset ${setting.label}`}
+                    className="absolute right-0 top-0 grid size-5 place-items-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  >
+                    <RotateCcw className="size-3" />
+                  </button>
+                ) : null}
+              </div>
+            );
+          })}
         </section>
       ))}
     </>
