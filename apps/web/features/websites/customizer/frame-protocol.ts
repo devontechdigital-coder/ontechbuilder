@@ -40,11 +40,14 @@ export type ThemeFrameRenderedMessage = {
   type: typeof THEME_FRAME_RENDERED;
 };
 
+/** Carried on selectSection/selectBlock when that same click also hit a theme-authored <a> — lets the parent show the link popup alongside the settings toolbar instead of one replacing the other. See ThemeFrameAction's showLinkPopup for why this is x/y in the grandchild's own viewport coordinates. */
+export type ThemeFrameLinkClick = { href: string; x: number; y: number };
+
 export type ThemeFrameAction =
-  | { action: "selectSection"; sectionId: string }
+  | { action: "selectSection"; sectionId: string; link?: ThemeFrameLinkClick }
   /** Select the section (or block, when blockId is set) AND surface its settings — the canvas toolbar's gear button. */
   | { action: "openSettings"; sectionId: string; blockId?: string }
-  | { action: "selectBlock"; sectionId: string; blockId: string }
+  | { action: "selectBlock"; sectionId: string; blockId: string; link?: ThemeFrameLinkClick }
   | { action: "toggleSection"; sectionId: string }
   | { action: "duplicateSection"; sectionId: string }
   | { action: "deleteSection"; sectionId: string }
@@ -55,13 +58,13 @@ export type ThemeFrameAction =
   /** Closes the inline canvas editor without changing what's selected in the sidebar. */
   | { action: "deselect" }
   /**
-   * A theme-authored <a> was clicked in the canvas — the grandchild always preventDefault()s real
-   * navigation there (it would otherwise navigate the sandboxed iframe away from the editor) and
-   * asks for this popup instead. x/y are the grandchild's own viewport coordinates, which map
-   * 1:1 onto theme-frame-page.tsx's viewport (the grandchild iframe fills it exactly), so this is
-   * handled directly there rather than relayed further up to the customizer page.
+   * A theme-authored <a> was clicked in the canvas outside any tracked section (rare — real
+   * content always lives inside one) — the grandchild always preventDefault()s real navigation
+   * there (it would otherwise navigate the sandboxed iframe away from the editor) and asks for
+   * this popup instead. When the link IS inside a section/block, that link info rides on the
+   * selectSection/selectBlock message instead (see ThemeFrameLinkClick) rather than arriving here.
    */
-  | { action: "showLinkPopup"; href: string; x: number; y: number };
+  | ({ action: "showLinkPopup" } & ThemeFrameLinkClick);
 
 export type ThemeFrameActionMessage = {
   type: typeof THEME_FRAME_ACTION;

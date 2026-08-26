@@ -21,6 +21,7 @@ import {
   Link as LinkIcon,
   Lock,
   Mail,
+  Maximize2,
   MousePointerClick,
   Phone,
   Plus,
@@ -595,13 +596,20 @@ export function FormBuilderPage({ params }: { params: Promise<{ id: string; form
       </div>
 
       {activeTab === "form" ? (
-        <div className="grid gap-4 md:grid-cols-[220px_minmax(0,1fr)_300px]">
-          <Card className="content-start">
-            <p className="text-[12.5px] font-semibold text-foreground">Field types</p>
+        <div className="grid items-start gap-4 md:grid-cols-[220px_minmax(0,1fr)_300px]">
+          <Card className="content-start md:sticky md:top-4 md:max-h-[calc(100vh-2rem)] md:overflow-y-auto">
+            <div className="flex items-center gap-1.5">
+              <LayoutGrid className="size-3.5 text-muted-foreground" />
+              <p className="text-[12.5px] font-semibold text-foreground">Field types</p>
+            </div>
             <div className="grid gap-4">
               {FIELD_GROUPS.map((group) => (
                 <div key={group} className="grid gap-1.5">
-                  <p className="text-[10.5px] font-bold uppercase tracking-wide text-muted-foreground">{group}</p>
+                  <p className="flex items-center gap-1.5 text-[10.5px] font-bold uppercase tracking-wide text-muted-foreground">
+                    <span className="h-px flex-1 bg-border/70" />
+                    {group}
+                    <span className="h-px flex-1 bg-border/70" />
+                  </p>
                   <div className="grid gap-1">
                     {FORM_FIELD_TYPES.filter((type) => FIELD_TYPE_META[type].group === group).map((type) => {
                       const meta = FIELD_TYPE_META[type];
@@ -614,11 +622,13 @@ export function FormBuilderPage({ params }: { params: Promise<{ id: string; form
                           onDragStart={() => setDraggingPaletteType(type)}
                           onDragEnd={() => setDraggingPaletteType(null)}
                           onClick={() => addFieldAsNewRow(type)}
-                          className="flex cursor-grab items-center gap-2 rounded-md border border-transparent px-2 py-1.5 text-left text-[12px] font-medium text-foreground transition-colors hover:border-input hover:bg-surface-secondary/60 active:cursor-grabbing"
+                          className="group flex cursor-grab items-center gap-2 rounded-md border border-transparent px-2 py-1.5 text-left text-[12px] font-medium text-foreground transition-all duration-150 hover:-translate-y-px hover:border-input hover:bg-surface-secondary/70 hover:shadow-sm active:cursor-grabbing"
                         >
-                          <Icon className="size-4 shrink-0 text-muted-foreground" />
+                          <span className="grid size-6 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground transition-colors group-hover:bg-primary/10 group-hover:text-primary">
+                            <Icon className="size-3.5" />
+                          </span>
                           <span className="min-w-0 flex-1 truncate">{meta.label}</span>
-                          <Plus className="size-3.5 shrink-0 text-muted-foreground" />
+                          <Plus className="size-3.5 shrink-0 text-muted-foreground/50 transition-colors group-hover:text-primary" />
                         </button>
                       );
                     })}
@@ -627,10 +637,18 @@ export function FormBuilderPage({ params }: { params: Promise<{ id: string; form
               ))}
             </div>
           </Card>
-
-          <Card className="content-start">
+ 
+     <Card className="content-start md:sticky md:top-4 md:max-h-[calc(100vh-2rem)] md:overflow-y-auto">
             <div className="flex items-center justify-between gap-2">
-              <p className="text-[12.5px] font-semibold text-foreground">Canvas</p>
+              <div className="flex items-center gap-1.5">
+                <ClipboardList className="size-3.5 text-muted-foreground" />
+                <p className="text-[12.5px] font-semibold text-foreground">Canvas</p>
+                {rows.length ? (
+                  <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10.5px] font-semibold text-muted-foreground">
+                    {rows.length} row{rows.length === 1 ? "" : "s"}
+                  </span>
+                ) : null}
+              </div>
               <Button type="button" size="sm" variant="secondary" onClick={() => setLayoutPickerOpen(true)}>
                 <LayoutGrid className="size-4" />
                 Add row
@@ -643,7 +661,7 @@ export function FormBuilderPage({ params }: { params: Promise<{ id: string; form
                     key={row.id}
                     onDragOver={(event) => event.preventDefault()}
                     className={cn(
-                      "grid gap-2 rounded-lg border border-dashed p-2 transition-colors",
+                      "grid gap-2 rounded-xl border border-dashed bg-surface-secondary/20 p-2.5 transition-colors",
                       rowOverIndex === rowIndex && draggingRowIndex !== null && draggingRowIndex !== rowIndex ? "border-info bg-info/5" : "border-border/70",
                       draggingRowIndex === rowIndex ? "opacity-50" : "",
                     )}
@@ -666,10 +684,12 @@ export function FormBuilderPage({ params }: { params: Promise<{ id: string; form
                           setDraggingRowIndex(null);
                           setRowOverIndex(null);
                         }}
-                        className="flex cursor-grab items-center gap-1 text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground active:cursor-grabbing"
+                        className="flex cursor-grab items-center gap-1.5 rounded-full border border-border/70 bg-surface px-2 py-0.5 text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground active:cursor-grabbing"
                       >
                         <GripVertical className="size-3.5" />
                         Row {rowIndex + 1}
+                        <span className="text-muted-foreground/50">·</span>
+                        <span>{row.items.length} col{row.items.length === 1 ? "" : "s"}</span>
                       </span>
                       <IconButton label={`Remove row ${rowIndex + 1}`} onClick={() => removeRow(rowIndex)}>
                         <Trash2 className="size-3.5" />
@@ -699,18 +719,25 @@ export function FormBuilderPage({ params }: { params: Promise<{ id: string; form
                               onDragEnd={() => setMovingItem(null)}
                               onClick={() => setSelectedFieldId(item.field.id)}
                               className={cn(
-                                "group flex h-full cursor-pointer items-center gap-2 rounded-md border bg-surface p-2.5 transition-shadow",
+                                "group flex h-full cursor-pointer items-center gap-2 rounded-lg border bg-surface p-2.5 shadow-sm transition-all duration-150 hover:shadow-md",
                                 selectedFieldId === item.field.id ? "border-primary ring-2 ring-ring/20" : "border-border",
                               )}
                             >
                               <span className="cursor-grab px-0.5 text-muted-foreground/40 active:cursor-grabbing" aria-hidden="true">
                                 <GripVertical className="size-4" />
                               </span>
-                              <span className="text-muted-foreground">{fieldIcon(item.field.type)}</span>
+                              <span
+                                className={cn(
+                                  "grid size-8 shrink-0 place-items-center rounded-md",
+                                  selectedFieldId === item.field.id ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground",
+                                )}
+                              >
+                                {fieldIcon(item.field.type)}
+                              </span>
                               <div className="min-w-0 flex-1">
-                                <p className="truncate text-[12.5px] font-semibold text-foreground">
-                                  {item.field.label}
-                                  {item.field.required ? <span className="ml-1 text-destructive">*</span> : null}
+                                <p className="flex items-center gap-1 truncate text-[12.5px] font-semibold text-foreground">
+                                  <span className="truncate">{item.field.label}</span>
+                                  {item.field.required ? <span className="size-1 shrink-0 rounded-full bg-destructive" aria-label="Required" /> : null}
                                 </p>
                                 <p className="truncate text-[11px] text-muted-foreground">
                                   {FIELD_TYPE_META[item.field.type].label} · {item.field.name}
@@ -740,8 +767,11 @@ export function FormBuilderPage({ params }: { params: Promise<{ id: string; form
                                   setMovingItem(null);
                                 }
                               }}
-                              className="grid h-full min-h-16 place-items-center gap-1 rounded-lg border-2 border-dashed border-border bg-surface-secondary/40 p-2 text-center"
+                              className="grid h-full min-h-20 place-items-center gap-1.5 rounded-lg border-2 border-dashed border-border bg-surface-secondary/40 p-2 text-center transition-colors hover:border-primary/40 hover:bg-primary/[0.03]"
                             >
+                              <span className="grid size-7 place-items-center rounded-full bg-surface text-muted-foreground/60">
+                                <Plus className="size-4" />
+                              </span>
                               <select
                                 value=""
                                 onChange={(event) => {
@@ -749,14 +779,14 @@ export function FormBuilderPage({ params }: { params: Promise<{ id: string; form
                                 }}
                                 className="w-full max-w-[170px] rounded-md border border-input bg-surface px-2 py-1 text-[11.5px] text-foreground"
                               >
-                                <option value="">+ Choose field type</option>
+                                <option value="">Choose field type</option>
                                 {FORM_FIELD_TYPES.map((type) => (
                                   <option key={type} value={type}>
                                     {FIELD_TYPE_META[type].label}
                                   </option>
                                 ))}
                               </select>
-                              <span className="text-[10px] text-muted-foreground">or drag a field type here · {item.width}%</span>
+                              <span className="text-[10px] text-muted-foreground">or drag a field here · {item.width}%</span>
                             </div>
                           )}
                         </div>
@@ -775,8 +805,11 @@ export function FormBuilderPage({ params }: { params: Promise<{ id: string; form
                     setDraggingPaletteType(null);
                   }
                 }}
-                className="grid justify-items-center gap-3 rounded-lg border border-dashed bg-surface-secondary/60 px-5 py-10 text-center"
+                className="grid justify-items-center gap-3 rounded-xl border border-dashed bg-surface-secondary/60 px-5 py-12 text-center"
               >
+                <span className="grid size-11 place-items-center rounded-full bg-primary/10 text-primary">
+                  <LayoutGrid className="size-5" />
+                </span>
                 <p className="text-[12.5px] font-semibold text-foreground">No fields yet</p>
                 <p className="max-w-xs text-[12px] leading-5 text-muted-foreground">
                   Choose a column layout, then drag or pick a field type for each column — or click a field type on the left to add it as its own row.
@@ -789,8 +822,11 @@ export function FormBuilderPage({ params }: { params: Promise<{ id: string; form
             )}
           </Card>
 
-          <Card className="content-start">
-            <p className="text-[12.5px] font-semibold text-foreground">Field settings</p>
+          <Card className="content-start md:sticky md:top-4 md:max-h-[calc(100vh-2rem)] md:overflow-y-auto">
+            <div className="flex items-center gap-1.5">
+              <SlidersHorizontal className="size-3.5 text-muted-foreground" />
+              <p className="text-[12.5px] font-semibold text-foreground">Field settings</p>
+            </div>
             {selectedField ? (
               <FieldSettingsPanel
                 field={selectedField}
@@ -798,7 +834,10 @@ export function FormBuilderPage({ params }: { params: Promise<{ id: string; form
                 onChange={(patch) => updateField(selectedField.id, patch)}
               />
             ) : (
-              <p className="text-[12px] leading-5 text-muted-foreground">Select a field on the canvas to edit its settings.</p>
+              <div className="grid justify-items-center gap-2 rounded-lg border border-dashed bg-surface-secondary/40 px-4 py-8 text-center">
+                <SlidersHorizontal className="size-5 text-muted-foreground/50" />
+                <p className="text-[12px] leading-5 text-muted-foreground">Select a field on the canvas to edit its settings.</p>
+              </div>
             )}
           </Card>
         </div>
@@ -825,11 +864,11 @@ export function FormBuilderPage({ params }: { params: Promise<{ id: string; form
               key={preset.id}
               type="button"
               onClick={() => addRow(preset.widths)}
-              className="grid gap-2 rounded-lg border p-3 text-center transition-colors hover:border-primary hover:bg-primary/5"
+              className="group grid gap-2 rounded-lg border p-3 text-center transition-all duration-150 hover:-translate-y-0.5 hover:border-primary hover:bg-primary/5 hover:shadow-sm"
             >
               <div className="flex h-10 items-stretch gap-1">
                 {preset.widths.map((width, index) => (
-                  <div key={index} style={{ flexBasis: `${width}%` }} className="flex-1 rounded bg-muted" />
+                  <div key={index} style={{ flexBasis: `${width}%` }} className="flex-1 rounded bg-muted transition-colors group-hover:bg-primary/20" />
                 ))}
               </div>
               <span className="text-[11.5px] font-medium text-foreground">{preset.label}</span>
@@ -854,7 +893,12 @@ function FieldSettingsPanel({
 
   return (
     <div className="grid gap-3">
-      <Badge>{FIELD_TYPE_META[field.type].label}</Badge>
+      <div className="flex items-center gap-2 rounded-lg bg-surface-secondary/50 px-2.5 py-2">
+        <span className="grid size-7 shrink-0 place-items-center rounded-md bg-primary/10 text-primary">
+          {fieldIcon(field.type)}
+        </span>
+        <Badge>{FIELD_TYPE_META[field.type].label}</Badge>
+      </div>
 
       <Field label={isButtonLike ? "Button text" : "Label"}>
         <Input value={field.label} onChange={(event) => onChange({ label: event.target.value })} />
@@ -898,7 +942,9 @@ function FieldSettingsPanel({
       ) : null}
 
       {supportsRequired(field.type) ? (
-        <Checkbox label="Required" checked={Boolean(field.required)} onChange={(event) => onChange({ required: event.target.checked })} />
+        <div className="rounded-md border border-border/70 px-2.5 py-2">
+          <Checkbox label="Required" checked={Boolean(field.required)} onChange={(event) => onChange({ required: event.target.checked })} />
+        </div>
       ) : null}
 
       {supportsOptions(field.type) ? (
@@ -1013,7 +1059,8 @@ function OptionsEditor({ options, onChange }: { options: FormFieldOption[]; onCh
     <Field label="Options">
       <div className="grid gap-1.5">
         {options.map((option, index) => (
-          <div key={index} className="flex items-center gap-1.5">
+          <div key={index} className="flex items-center gap-1.5 rounded-md border border-border/60 bg-surface-secondary/30 p-1.5">
+            <span className="w-4 shrink-0 text-center text-[10px] font-mono text-muted-foreground/60">{index + 1}</span>
             <Input
               className="min-w-0 flex-1"
               value={option.label}
@@ -1026,7 +1073,7 @@ function OptionsEditor({ options, onChange }: { options: FormFieldOption[]; onCh
               placeholder="Value"
               onChange={(event) => updateOption(index, { value: event.target.value })}
             />
-            <IconButton label="Remove option" onClick={() => removeOption(index)}>
+            <IconButton label="Remove option" className="hover:bg-destructive/10 hover:text-destructive" onClick={() => removeOption(index)}>
               <Trash2 className="size-3.5" />
             </IconButton>
           </div>
@@ -1034,7 +1081,7 @@ function OptionsEditor({ options, onChange }: { options: FormFieldOption[]; onCh
         <button
           type="button"
           onClick={addOption}
-          className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[12px] font-medium text-info transition-colors hover:bg-info/10"
+          className="flex items-center justify-center gap-1.5 rounded-md border border-dashed border-info/40 px-2 py-1.5 text-[12px] font-medium text-info transition-colors hover:bg-info/10"
         >
           <Plus className="size-3.5" />
           Add option
@@ -1060,12 +1107,27 @@ function MailTab({
   return (
     <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_280px]">
       <Card className="content-start">
-        <p className="text-[12.5px] font-semibold text-foreground">Email notification</p>
-        <Checkbox
-          label="Send an email notification on each submission"
-          checked={mailSettings.enabled}
-          onChange={(event) => onChange({ ...mailSettings, enabled: event.target.checked })}
-        />
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-1.5">
+            <Mail className="size-3.5 text-muted-foreground" />
+            <p className="text-[12.5px] font-semibold text-foreground">Email notification</p>
+          </div>
+          <span
+            className={cn(
+              "rounded-full px-2 py-0.5 text-[10.5px] font-semibold uppercase tracking-wide",
+              mailSettings.enabled ? "bg-success/10 text-success" : "bg-muted text-muted-foreground",
+            )}
+          >
+            {mailSettings.enabled ? "On" : "Off"}
+          </span>
+        </div>
+        <div className="rounded-md border border-border/70 px-2.5 py-2">
+          <Checkbox
+            label="Send an email notification on each submission"
+            checked={mailSettings.enabled}
+            onChange={(event) => onChange({ ...mailSettings, enabled: event.target.checked })}
+          />
+        </div>
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="To">
             <Input
@@ -1117,7 +1179,7 @@ function MailTab({
         </div>
       </Card>
 
-      <Card className="content-start">
+      <Card className="content-start md:sticky md:top-4">
         <p className="text-[12.5px] font-semibold text-foreground">Available placeholders</p>
         <p className="text-[11.5px] leading-5 text-muted-foreground">
           Click to insert into the subject or message body.
@@ -1126,9 +1188,14 @@ function MailTab({
           <div className="grid gap-1.5">
             {namedFields.map((field) => (
               <div key={field.id} className="flex items-center justify-between gap-2 rounded-md border bg-surface-secondary/40 px-2 py-1.5">
-                <div className="min-w-0">
-                  <p className="truncate text-[12px] font-semibold text-foreground">{field.label}</p>
-                  <p className="truncate text-[11px] text-muted-foreground">{`{{${field.name}}}`}</p>
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="grid size-6 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground">
+                    {fieldIcon(field.type)}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="truncate text-[12px] font-semibold text-foreground">{field.label}</p>
+                    <p className="truncate font-mono text-[10.5px] text-muted-foreground">{`{{${field.name}}}`}</p>
+                  </div>
                 </div>
                 <div className="flex shrink-0 gap-1">
                   <Button type="button" size="sm" variant="secondary" onClick={() => onInsertToken("subject", `{{${field.name}}}`)}>
@@ -1179,6 +1246,8 @@ function CssTab({
   formId: string;
   formName: string;
 }) {
+  const [previewOpen, setPreviewOpen] = useState(false);
+
   const previewHtml = useMemo(() => {
     const publicForm: PublicForm = { id: formId, name: formName, fields, customCss };
     const bodyHtml = renderFormHtml(publicForm);
@@ -1188,7 +1257,10 @@ function CssTab({
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
       <Card className="content-start">
-        <p className="text-[12.5px] font-semibold text-foreground">Custom CSS</p>
+        <div className="flex items-center gap-1.5">
+          <Code2 className="size-3.5 text-muted-foreground" />
+          <p className="text-[12.5px] font-semibold text-foreground">Custom CSS</p>
+        </div>
         <p className="text-[11.5px] leading-5 text-muted-foreground">
           Style this form's inputs, labels, and buttons. Applied everywhere this form is embedded — the shortcode-rendered public form and this preview.
         </p>
@@ -1202,10 +1274,17 @@ function CssTab({
         />
       </Card>
 
-      <div className="grid content-start gap-4">
+      <div className="grid content-start gap-4 lg:sticky lg:top-4">
         <Card className="content-start">
-          <p className="text-[12.5px] font-semibold text-foreground">Live preview</p>
-          <iframe title="Form CSS preview" srcDoc={previewHtml} sandbox="" className="h-[420px] w-full rounded-lg border bg-white" />
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[12.5px] font-semibold text-foreground">Live preview</p>
+            <IconButton label="Expand preview" onClick={() => setPreviewOpen(true)}>
+              <Maximize2 className="size-3.5" />
+            </IconButton>
+          </div>
+          <div className="h-[420px] w-full overflow-y-auto rounded-lg border bg-white">
+            <iframe title="Form CSS preview" srcDoc={previewHtml} sandbox="" className="h-full w-full" />
+          </div>
         </Card>
 
         <Card className="content-start">
@@ -1220,6 +1299,22 @@ function CssTab({
           </div>
         </Card>
       </div>
+
+      <Modal
+        open={previewOpen}
+        title="Live preview"
+        description="Full-size preview of this form with your custom CSS applied."
+        onClose={() => setPreviewOpen(false)}
+      >
+        <div className="h-[75vh] w-full overflow-y-auto p-4">
+          <iframe
+            title="Form CSS preview (full size)"
+            srcDoc={previewHtml}
+            sandbox=""
+            className="h-full w-full rounded-lg border bg-white"
+          />
+        </div>
+      </Modal>
     </div>
   );
 }

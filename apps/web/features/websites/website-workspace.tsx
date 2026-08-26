@@ -39,6 +39,7 @@ interface MeResponse {
 }
 
 type WebsiteSection = "pages" | "blogs" | "themes" | "domains" | "settings";
+type SettingsTab = "general" | "seo" | "danger";
 
 const domainPageSize = 8;
 const pageSizePresets = ["10", "25", "50", "100"];
@@ -127,6 +128,8 @@ export function WebsiteWorkspace({
   const [themeHistory, setThemeHistory] = useState<ThemeRevisionSummary[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<null | { title: string; description: string; action: () => void }>(null);
+  const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTab>("general");
+  const [archiveConfirmationInput, setArchiveConfirmationInput] = useState("");
 
   const pagesPerPage = pageSizeChoice === "custom" ? Math.max(1, customPageSize || 1) : Number(pageSizeChoice);
   const visiblePages = pages.slice(pageIndex * pagesPerPage, pageIndex * pagesPerPage + pagesPerPage);
@@ -1599,20 +1602,36 @@ export function WebsiteWorkspace({
 
       {section === "settings" ? (
         <section className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(280px,1fr)]">
-          <div className="grid gap-4">
-            <Card>
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="flex items-start gap-3">
-                  <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                    <Settings className="size-[18px]" />
-                  </div>
-                  <div>
-                    <h2 className="text-[14.5px] font-semibold leading-5 text-foreground">Website settings</h2>
-                    <p className="mt-0.5 text-[12.5px] leading-5 text-muted-foreground">Update the website name and internal slug.</p>
-                  </div>
+          <Card>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+                  <Settings className="size-[18px]" />
                 </div>
-                <StatusBadge status={website.status} />
+                <div>
+                  <h2 className="text-[14.5px] font-semibold leading-5 text-foreground">Website settings</h2>
+                  <p className="mt-0.5 text-[12.5px] leading-5 text-muted-foreground">
+                    General details, search visibility, and account-level actions for this website.
+                  </p>
+                </div>
               </div>
+              <StatusBadge status={website.status} />
+            </div>
+
+            <Tabs
+              tabs={[
+                { value: "general", label: "General" },
+                { value: "seo", label: "SEO" },
+                { value: "danger", label: "Danger zone" },
+              ]}
+              value={activeSettingsTab}
+              onChange={(value) => {
+                setActiveSettingsTab(value as SettingsTab);
+                if (value !== "danger") setArchiveConfirmationInput("");
+              }}
+            />
+
+            {activeSettingsTab === "general" ? (
               <form className="grid gap-4 sm:grid-cols-2" onSubmit={saveWebsite}>
                 <Field label="Name"><Input value={name} onChange={(event) => setName(event.target.value)} required /></Field>
                 <Field label="Slug" hint="Used for preview and internal URLs.">
@@ -1622,39 +1641,60 @@ export function WebsiteWorkspace({
                   <Button type="submit"><CheckCircle2 className="size-4" />Save settings</Button>
                 </div>
               </form>
-            </Card>
-
-            {me?.activeTenant ? (
-              <WebsiteSeoSettings activeTenantId={me.activeTenant.id} website={website} onSaved={setWebsite} />
             ) : null}
 
-            <Card className="border-destructive/25 bg-destructive/[0.03]">
-              <div className="flex items-start gap-3">
-                <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-destructive/10 text-destructive">
-                  <ShieldAlert className="size-[18px]" />
+            {activeSettingsTab === "seo" ? (
+              me?.activeTenant ? (
+                <WebsiteSeoSettings activeTenantId={me.activeTenant.id} website={website} onSaved={setWebsite} />
+              ) : (
+                <p className="text-[12.5px] text-muted-foreground">SEO settings are unavailable right now.</p>
+              )
+            ) : null}
+
+            {activeSettingsTab === "danger" ? (
+              <div className="grid gap-3 rounded-lg border border-destructive/25 bg-destructive/[0.03] p-4">
+                <div className="flex items-start gap-3">
+                  <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-destructive/10 text-destructive">
+                    <ShieldAlert className="size-4" />
+                  </div>
+                  <div>
+                    <p className="text-[12.5px] font-semibold text-foreground">Archive website</p>
+                    <p className="mt-0.5 max-w-sm text-[11.5px] leading-5 text-muted-foreground">
+                      Hides this website from visitors and removes it from active listings. It can be restored later.
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <h2 className="text-[14.5px] font-semibold leading-5 text-foreground">Danger zone</h2>
-                  <p className="mt-0.5 text-[12.5px] leading-5 text-muted-foreground">Irreversible actions for this website.</p>
+                <Field label={`Type "${website.name}" to confirm`}>
+                  <Input
+                    value={archiveConfirmationInput}
+                    onChange={(event) => setArchiveConfirmationInput(event.target.value)}
+                    placeholder={website.name}
+                    autoComplete="off"
+                  />
+                </Field>
+                <div className="flex justify-end">
+                  <Button
+                    type="button"
+                    variant="danger"
+                    disabled={archiveConfirmationInput.trim() !== website.name}
+                    onClick={() =>
+                      setConfirm({
+                        title: "Archive website",
+                        description: "Archive this website record? You can restore it later from Anthropic support or the archived-websites list.",
+                        action: () => {
+                          void archiveWebsite();
+                          setArchiveConfirmationInput("");
+                        },
+                      })
+                    }
+                  >
+                    <Archive className="size-4" />
+                    Archive website
+                  </Button>
                 </div>
               </div>
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/20 bg-surface p-3.5">
-                <div>
-                  <p className="text-[12.5px] font-semibold text-foreground">Archive website</p>
-                  <p className="mt-0.5 max-w-sm text-[11.5px] leading-5 text-muted-foreground">
-                    Hides this website from visitors and removes it from active listings. It can be restored later.
-                  </p>
-                </div>
-                <Button
-                  type="button"
-                  variant="danger"
-                  onClick={() => setConfirm({ title: "Archive website", description: "Archive this website record?", action: archiveWebsite })}
-                >
-                  Archive website
-                </Button>
-              </div>
-            </Card>
-          </div>
+            ) : null}
+          </Card>
 
           <Card title="Record details" eyebrow="Metadata">
             <div className="grid gap-2">

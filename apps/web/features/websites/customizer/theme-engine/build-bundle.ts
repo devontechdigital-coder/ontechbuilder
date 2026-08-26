@@ -740,16 +740,16 @@ const BOOTSTRAP_SCRIPT = `
       // A theme-authored link would otherwise navigate this iframe away from
       // whatever's being edited (or, for an external href, just do nothing —
       // this iframe has no allow-popups) — either way it breaks the editing
-      // session. Stop it here and hand off to the parent's own link popup
-      // instead, which is a real anchor tag it can actually open a tab from.
+      // session. preventDefault always, but still resolve the click's own
+      // block/section below as normal (a linked button/card should still be
+      // selectable) — the link rides along on that same message so the
+      // parent can show its "open link" popup alongside the settings
+      // toolbar, instead of the popup replacing the ability to select it.
       var anchor = event.target.closest ? event.target.closest("a[href]") : null;
+      var link = null;
       if (anchor) {
         event.preventDefault();
-        window.parent.postMessage(
-          { type: "themeFrame:action", action: "showLinkPopup", href: anchor.getAttribute("href") || "", x: event.clientX, y: event.clientY },
-          parentOrigin,
-        );
-        return;
+        link = { href: anchor.getAttribute("href") || "", x: event.clientX, y: event.clientY };
       }
 
       var el = event.target;
@@ -761,15 +761,20 @@ const BOOTSTRAP_SCRIPT = `
         }
         var sectionId = el.getAttribute && el.getAttribute("data-theme-section-id");
         if (sectionId) {
-          console.log("[theme-engine] click matched section=", sectionId, "block=", blockId);
-          if (blockId) {
-            window.parent.postMessage({ type: "themeFrame:action", action: "selectBlock", sectionId: sectionId, blockId: blockId }, parentOrigin);
-          } else {
-            window.parent.postMessage({ type: "themeFrame:action", action: "selectSection", sectionId: sectionId }, parentOrigin);
-          }
+          console.log("[theme-engine] click matched section=", sectionId, "block=", blockId, "link=", link);
+          var action = blockId
+            ? { action: "selectBlock", sectionId: sectionId, blockId: blockId }
+            : { action: "selectSection", sectionId: sectionId };
+          if (link) action.link = link;
+          window.parent.postMessage(Object.assign({ type: "themeFrame:action" }, action), parentOrigin);
           return;
         }
         el = el.parentElement;
+      }
+
+      if (link) {
+        window.parent.postMessage({ type: "themeFrame:action", action: "showLinkPopup", href: link.href, x: link.x, y: link.y }, parentOrigin);
+        return;
       }
       console.log("[theme-engine] click found no section-id ancestor from target=", event.target);
     },

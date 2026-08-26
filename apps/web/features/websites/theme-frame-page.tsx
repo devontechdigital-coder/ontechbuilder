@@ -200,10 +200,12 @@ export function ThemeFramePage({ params }: { params: Promise<{ id: string; theme
           setLinkPopup({ href: message.href, x: message.x, y: message.y });
           return;
         }
-        // Any other canvas interaction (selecting a different section/block, adding a section, ...)
-        // means the click that opened the popup is done with — close it rather than leave it
-        // pointing at a link the user has since clicked away from.
-        setLinkPopup(null);
+        // A selectSection/selectBlock click that also hit a link carries it here — show the
+        // popup alongside the toolbar the parent draws for that selection, rather than losing
+        // the ability to select a linked button/card just because it's also a link. Any other
+        // canvas interaction (no link attached) means the click that opened a previous popup is
+        // done with — close it rather than leave it pointing at a link clicked away from.
+        setLinkPopup("link" in message && message.link ? message.link : null);
         postToParent(message);
       }
     }
