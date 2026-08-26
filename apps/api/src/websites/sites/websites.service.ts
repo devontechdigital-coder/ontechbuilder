@@ -823,6 +823,8 @@ function publicWebsiteSelect(requestedPath: string) {
     name: true,
     slug: true,
     status: true,
+    faviconUrl: true,
+    searchEngineVisible: true,
     homePage: {
       select: publicPageSelect,
     },
@@ -883,6 +885,8 @@ function buildPublicSiteResponse(
       name: website.name,
       slug: website.slug,
       status: website.status,
+      faviconUrl: website.faviconUrl,
+      searchEngineVisible: website.searchEngineVisible,
     },
     page: page
       ? {

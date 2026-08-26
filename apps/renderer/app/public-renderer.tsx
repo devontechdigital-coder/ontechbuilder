@@ -14,6 +14,8 @@ interface PublicSiteResponse {
     name: string;
     slug: string;
     status: "DRAFT" | "PUBLISHED" | "ARCHIVED";
+    faviconUrl: string;
+    searchEngineVisible: boolean;
   };
   page: {
     id: string;
@@ -150,11 +152,12 @@ function siteMetadata(site: PublicSiteResponse | null): Metadata {
   if (!site) {
     return { title: "Site not connected" };
   }
+  const favicon = faviconMetadata(site.website.faviconUrl);
   if (site.website.status !== "PUBLISHED") {
-    return { title: site.website.name };
+    return { title: site.website.name, ...favicon };
   }
   if (!site.page) {
-    return { title: `Page not found – ${site.website.name}` };
+    return { title: `Page not found – ${site.website.name}`, ...favicon };
   }
   const seo = (site.page?.seo ?? {}) as Record<string, unknown>;
   const metaTitle = typeof seo.metaTitle === "string" && seo.metaTitle.trim() ? seo.metaTitle : (site.page?.title ?? site.website.name);
@@ -162,7 +165,15 @@ function siteMetadata(site: PublicSiteResponse | null): Metadata {
   return {
     title: metaTitle,
     ...(metaDescription ? { description: metaDescription } : {}),
+    ...favicon,
+    // "Search engine visibility" toggle (website settings) — off means every page on this site
+    // tells crawlers not to index it or follow its links, regardless of the page's own content.
+    ...(site.website.searchEngineVisible ? {} : { robots: { index: false, follow: false } }),
   };
+}
+
+function faviconMetadata(faviconUrl: string): Pick<Metadata, "icons"> {
+  return faviconUrl.trim() ? { icons: { icon: faviconUrl } } : {};
 }
 
 /** Deduped per-request: generateMetadata and the page body both call this for the same path, and should only hit the API once. */
