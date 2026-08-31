@@ -228,6 +228,23 @@ function SettingGroups({
   );
 }
 
+/**
+ * A theme can declare a JSON-string field whose id ends "Json" (schema-parser.ts's own convention
+ * for "this textarea holds a serialized tree" — see isNestedLinksField) while its own default
+ * content and a block's actual saved value live one key shorter, already a real array rather than
+ * a JSON string (e.g. field id "linksJson", real data at settings.links) — a real theme found
+ * this session (ontech-theme-zip's Footer: schema.ts declares "linksJson", but defaultBlocks and
+ * every live block instance store "links"). Reading and writing through whichever key actually
+ * holds the data keeps existing content visible and routes edits to where the theme's own
+ * rendering code looks for them, instead of silently showing the schema's placeholder default and
+ * saving edits nobody ever reads back.
+ */
+function nestedLinksStorageId(setting: ThemeSetting, values: Record<string, unknown>): string {
+  if (!isNestedLinksField(setting.id) || values[setting.id] !== undefined) return setting.id;
+  const fallbackId = setting.id.replace(/Json$/i, "");
+  return fallbackId !== setting.id && values[fallbackId] !== undefined ? fallbackId : setting.id;
+}
+
 function SettingRow({
   onChange,
   onReset,
@@ -239,14 +256,15 @@ function SettingRow({
   setting: ThemeSetting;
   values: Record<string, unknown>;
 }) {
-  const isOverridden = values[setting.id] !== undefined;
+  const storageId = nestedLinksStorageId(setting, values);
+  const isOverridden = values[storageId] !== undefined;
   return (
     <div className="relative">
-      <ThemeSettingControl control={setting} value={values[setting.id] ?? setting.default} onChange={(value) => onChange(setting.id, value)} />
+      <ThemeSettingControl control={setting} value={values[storageId] ?? setting.default} onChange={(value) => onChange(storageId, value)} />
       {onReset && isOverridden ? (
         <button
           type="button"
-          onClick={() => onReset(setting.id)}
+          onClick={() => onReset(storageId)}
           title={`Reset ${setting.label}`}
           aria-label={`Reset ${setting.label}`}
           className="absolute right-0 top-0 grid size-5 place-items-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
@@ -390,9 +408,14 @@ function ThemeSettingControl({ control, onChange, value }: { control: ThemeSetti
     return <Checkbox label={control.label} checked={Boolean(value)} onChange={(event) => onChange(event.target.checked)} />;
   }
   if (control.type === "textarea" && isNestedLinksField(control.id)) {
+    // The resolved value can be a real array/object rather than a JSON string — see
+    // nestedLinksStorageId's comment above — in which case String() would render
+    // "[object Object]" instead of the tree it actually holds.
+    const resolvedLinks = value ?? control.default ?? "[]";
+    const linksValue = typeof resolvedLinks === "string" ? resolvedLinks : JSON.stringify(resolvedLinks);
     return (
       <Field label={control.label} {...(control.info ? { hint: control.info } : {})}>
-        <NestedLinksEditor value={String(value ?? control.default ?? "[]")} onChange={onChange} />
+        <NestedLinksEditor value={linksValue} onChange={onChange} />
       </Field>
     );
   }
