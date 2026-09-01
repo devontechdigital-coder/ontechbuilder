@@ -26,4 +26,10 @@ export class PublicSitesController {
   seo(@Query("host") host?: string) {
     return this.websites.resolvePublicSiteSeo(host);
   }
+
+  /** Real published blog posts for a "dynamic" Blog grid section — see WebsitesService.resolvePublicBlogPosts. */
+  @Get("blog-posts")
+  blogPosts(@Query("websiteId") websiteId?: string, @Query("categoryIds") categoryIds?: string, @Query("limit") limit?: string) {
+    return this.websites.resolvePublicBlogPosts(websiteId, categoryIds, limit);
+  }
 }

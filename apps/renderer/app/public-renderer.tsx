@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import { resolvePageTemplateId } from "../lib/theme-engine/resolve-template";
 import type { RenderedThemePage, RenderThemePageInput } from "../lib/theme-engine/render";
 import { expandFormShortcodes } from "../lib/theme-engine/shortcodes";
+import { injectDynamicBlogPosts } from "../lib/theme-engine/dynamic-blog";
 import { PageViewTracker } from "./page-view-tracker";
 import { ThemeClientMount } from "./theme-client-mount";
 
@@ -109,7 +110,8 @@ async function renderThemedPage(page: NonNullable<PublicSiteResponse["page"]>, t
     // The URL a VISITOR'S browser posts to — must be publicly reachable, unlike internalApiBaseUrl
     // above (server-to-server only). Same convention apps/web's lib/api.ts uses.
     const publicApiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
-    const expandedSettings = (await expandFormShortcodes(themeEngine.settings, internalApiBaseUrl, publicApiBaseUrl)) as Record<string, unknown>;
+    const shortcodeExpandedSettings = (await expandFormShortcodes(themeEngine.settings, internalApiBaseUrl, publicApiBaseUrl)) as Record<string, unknown>;
+    const expandedSettings = (await injectDynamicBlogPosts(shortcodeExpandedSettings, internalApiBaseUrl, websiteId)) as Record<string, unknown>;
     const input: RenderThemePageInput = {
       files: themeEngine.files,
       storedManifest: themeEngine.manifest,

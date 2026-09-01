@@ -25,6 +25,7 @@ import { CustomizerInspector } from "./customizer/inspector";
 import { IconAction } from "./customizer/preview-renderer";
 import { isThemeFrameMessage, postToFrame, THEME_FRAME_ACTION, THEME_FRAME_READY, THEME_FRAME_UPDATE } from "./customizer/frame-protocol";
 import { expandFormShortcodes } from "./customizer/shortcodes";
+import { injectDynamicBlogPosts } from "./customizer/dynamic-blog";
 import {
   createBlock,
   createSectionInstance,
@@ -43,9 +44,9 @@ import {
   setNestedValue,
 } from "./customizer/state";
 import { resolveThemeRenderer } from "./customizer/theme-renderer";
-import type { CustomizerPageOption, SectionGroupKey, SectionGroups, SectionInstance, SelectedItem, Viewport } from "./customizer/types";
+import type { CustomizerPageOption, SectionBlock, SectionGroupKey, SectionGroups, SectionInstance, SelectedItem, Viewport } from "./customizer/types";
 import { useHistoryState } from "./customizer/use-history-state";
-import type { PageSummary, ThemeDraftSummary, ThemeInstallationSummary, WebsiteSummary } from "./types";
+import type { BlogCategorySummary, PageSummary, ThemeDraftSummary, ThemeInstallationSummary, WebsiteSummary } from "./types";
 
 interface MeResponse {
   user: SafeUser;
@@ -72,6 +73,7 @@ export function ThemeCustomizerPage({
   const [draft, setDraft] = useState<ThemeDraftSummary | null>(null);
   const { value: settings, commit: commitSettings, reset: resetSettings, undo, redo, canUndo, canRedo } = useHistoryState<Record<string, unknown>>({});
   const [pages, setPages] = useState<PageSummary[]>([]);
+  const [blogCategories, setBlogCategories] = useState<BlogCategorySummary[]>([]);
   const [selectedPageId, setSelectedPageId] = useState("");
   const [selected, setSelected] = useState<SelectedItem>({ kind: "theme" });
   const [expandedSectionIds, setExpandedSectionIds] = useState<Set<string>>(new Set());
@@ -86,6 +88,7 @@ export function ThemeCustomizerPage({
   const canvasFrameRef = useRef<HTMLIFrameElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
   const shortcodeCacheRef = useRef<Map<string, string>>(new Map());
+  const dynamicBlogCacheRef = useRef<Map<string, SectionBlock[]>>(new Map());
   /** Tracks the last `initialPageId` this component synced to, so a change in that prop (navigating from one page's builder link to another's, which Next.js re-renders in place rather than remounting) forces the switcher — and the actual content being edited — to follow, instead of staying stuck on whichever page loaded first. */
   const syncedInitialPageIdRef = useRef<string | undefined>(undefined);
   /**
@@ -112,7 +115,7 @@ export function ThemeCustomizerPage({
           router.push("/login");
           return;
         }
-        const [websiteResponse, themesResponse, draftResponse, pagesResponse, blogsResponse] = await Promise.all([
+        const [websiteResponse, themesResponse, draftResponse, pagesResponse, blogsResponse, blogCategoriesResponse] = await Promise.all([
           apiRequest<WebsiteSummary>(`/tenants/${meResponse.activeTenant.id}/websites/${websiteId}`),
           apiRequest<ThemeInstallationSummary[]>(`/tenants/${meResponse.activeTenant.id}/websites/${websiteId}/themes`),
           apiRequest<ThemeDraftSummary>(`/tenants/${meResponse.activeTenant.id}/websites/${websiteId}/themes/${themeId}/draft`),
@@ -122,12 +125,16 @@ export function ThemeCustomizerPage({
           // blog post, since resolvePageTemplateId+the initialPageId sync below both key off this list.
           apiRequest<PageSummary[]>(`/websites/${websiteId}/pages`),
           apiRequest<PageSummary[]>(`/websites/${websiteId}/blogs`),
+          // For the Blog grid section's "Categories" multi-select — real categories, not something
+          // the theme itself could ever know about.
+          apiRequest<BlogCategorySummary[]>(`/websites/${websiteId}/blog-categories`),
         ]);
         setWebsite(websiteResponse);
         setTheme(themesResponse.find((item) => item.id === themeId) ?? null);
         setDraft(draftResponse);
         resetSettings(draftResponse.settings);
         setPages([...pagesResponse, ...blogsResponse]);
+        setBlogCategories(blogCategoriesResponse);
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Theme customizer failed to load");
       }
@@ -137,6 +144,10 @@ export function ThemeCustomizerPage({
   }, [router, themeId, websiteId]);
 
   const { globalSchema, sectionSchemas, getTemplateScope } = useMemo(() => resolveThemeRenderer(theme, draft), [draft, theme]);
+  const blogCategoryOptions = useMemo(
+    () => blogCategories.map((category) => ({ value: category.id, label: category.name })),
+    [blogCategories],
+  );
   const pageOptions = useMemo(() => getCustomizerPageOptions(pages, draft), [draft, pages]);
   const selectedPage = pageOptions.find((page) => page.id === selectedPageId) ?? pageOptions[0] ?? null;
   const pageKey = selectedPage?.id ?? "template-home";
@@ -476,7 +487,9 @@ export function ThemeCustomizerPage({
     void (async () => {
       // Cached by formId across every re-run (typing elsewhere on the page re-triggers this
       // effect too) so an already-resolved shortcode isn't re-fetched on every unrelated edit.
-      const expandedGroups = (await expandFormShortcodes(groups, publicApiBaseUrl, shortcodeCacheRef.current)) as SectionGroups;
+      const shortcodeExpandedGroups = (await expandFormShortcodes(groups, publicApiBaseUrl, shortcodeCacheRef.current)) as SectionGroups;
+      if (cancelled) return;
+      const expandedGroups = await injectDynamicBlogPosts(shortcodeExpandedGroups, websiteId, dynamicBlogCacheRef.current);
       if (cancelled) return;
       postToFrame(canvasFrameRef.current?.contentWindow, {
         type: THEME_FRAME_UPDATE,
@@ -592,6 +605,7 @@ export function ThemeCustomizerPage({
               }
               bottom={
                 <CustomizerInspector
+                  blogCategoryOptions={blogCategoryOptions}
                   globalSchema={globalSchema}
                   groups={groups}
                   onChangeBlockSetting={changeBlockSetting}
@@ -648,6 +662,7 @@ export function ThemeCustomizerPage({
           title={selectedItemLabel}
         >
           <CustomizerInspector
+            blogCategoryOptions={blogCategoryOptions}
             globalSchema={globalSchema}
             groups={groups}
             onChangeBlockSetting={changeBlockSetting}

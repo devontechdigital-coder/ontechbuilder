@@ -21,6 +21,7 @@ import type { SectionGroups, SectionSchema, SelectedItem, ThemeSetting } from ".
 const SEGMENTED_OPTION_LIMIT = 4;
 
 export function CustomizerInspector({
+  blogCategoryOptions,
   globalSchema,
   groups,
   onChangeBlockSetting,
@@ -35,6 +36,8 @@ export function CustomizerInspector({
   selected,
   themeSettings,
 }: {
+  /** This website's real blog categories, for the Blog grid section's "Categories" multi-select — see schema-parser.ts, which can't know these (they're website data, not theme-authored). */
+  blogCategoryOptions?: Array<{ value: string; label: string }>;
   globalSchema: ThemeSetting[];
   groups: SectionGroups;
   onChangeBlockSetting: (sectionId: string, blockId: string, controlId: string, value: unknown) => void;
@@ -50,6 +53,17 @@ export function CustomizerInspector({
   themeSettings: Record<string, unknown>;
 }) {
   const allSections = [...groups.header, ...groups.template, ...groups.footer];
+
+  // Blog grid's "categoryIds" field starts with an empty options list (design-fields.ts's font
+  // fields have the same problem, for the same reason) — filled in here from this website's real
+  // blog categories rather than a theme-authored, necessarily-static list.
+  const resolvedSectionSchemas = useMemo(() => {
+    if (!blogCategoryOptions?.length) return sectionSchemas;
+    return sectionSchemas.map((schema) => ({
+      ...schema,
+      settings: schema.settings.map((setting) => (setting.id === "categoryIds" ? { ...setting, options: blogCategoryOptions } : setting)),
+    }));
+  }, [sectionSchemas, blogCategoryOptions]);
 
   // design-fields.ts is theme-agnostic and can't know a theme's own curated font list, so its
   // three "Font family" fields start with empty options — filled in here from whichever global
@@ -75,7 +89,7 @@ export function CustomizerInspector({
   if (!section) {
     return <p className="p-4 text-[12.5px] text-muted-foreground">This item no longer exists.</p>;
   }
-  const schema = sectionSchemas.find((item) => item.id === section.schemaId);
+  const schema = resolvedSectionSchemas.find((item) => item.id === section.schemaId);
 
   if (selected.kind === "section") {
     return (
@@ -423,6 +437,31 @@ function ThemeSettingControl({ control, onChange, value }: { control: ThemeSetti
     return (
       <Field label={control.label} {...(control.info ? { hint: control.info } : {})}>
         <Textarea placeholder={control.placeholder} value={String(value ?? "")} onChange={(event) => onChange(event.target.value)} />
+      </Field>
+    );
+  }
+  if (control.type === "multi_select") {
+    const options = (control.options ?? []).map((option) => (typeof option === "string" ? { value: option, label: option } : option));
+    const selected = Array.isArray(value) ? value.map(String) : [];
+    function toggle(optionValue: string) {
+      onChange(selected.includes(optionValue) ? selected.filter((item) => item !== optionValue) : [...selected, optionValue]);
+    }
+    return (
+      <Field label={control.label} {...(control.info ? { hint: control.info } : {})}>
+        {options.length ? (
+          <div className="grid gap-1.5 rounded-md border border-input bg-surface p-2">
+            {options.map((option) => (
+              <Checkbox
+                key={option.value}
+                label={option.label}
+                checked={selected.includes(option.value)}
+                onChange={() => toggle(option.value)}
+              />
+            ))}
+          </div>
+        ) : (
+          <p className="text-[11.5px] text-muted-foreground">No options available yet.</p>
+        )}
       </Field>
     );
   }

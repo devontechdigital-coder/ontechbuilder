@@ -11,6 +11,7 @@ import { resolve4, resolveCname, resolveTxt } from "node:dns/promises";
 import {
   DomainStatus,
   DomainVerificationStatus,
+  PageKind,
   PageStatus,
   Prisma,
   ThemeStatus,
@@ -349,6 +350,53 @@ export class WebsitesService {
       sitemapEnabled: website.sitemapEnabled,
       paths,
     };
+  }
+
+  /**
+   * Real published blog posts for a "dynamic" Blog grid section — see the theme's
+   * sections/BlogGrid/schema.ts "Posts to show" setting. Public/unauthenticated for the same
+   * reason as resolvePublicSite: this only ever returns content already PUBLISHED (and therefore
+   * already visible to any visitor of the site), and the customizer's own live preview calls this
+   * same endpoint so what a merchant sees while editing matches the real site exactly.
+   */
+  async resolvePublicBlogPosts(websiteId: unknown, categoryIds: unknown, limit: unknown) {
+    const resolvedWebsiteId = requiredString(websiteId, "websiteId");
+    const categoryFilter = typeof categoryIds === "string" && categoryIds.trim().length
+      ? categoryIds.split(",").map((id) => id.trim()).filter(Boolean)
+      : null;
+    const resolvedLimit = Math.min(Math.max(Number.parseInt(String(limit ?? "6"), 10) || 6, 1), 24);
+
+    const website = await this.prisma.website.findFirst({
+      where: { id: resolvedWebsiteId, status: { not: WebsiteStatus.ARCHIVED } },
+      select: { id: true },
+    });
+    if (!website) throw new NotFoundException("Website was not found");
+
+    const posts = await this.prisma.page.findMany({
+      where: {
+        websiteId: resolvedWebsiteId,
+        kind: PageKind.BLOG,
+        status: PageStatus.PUBLISHED,
+        ...(categoryFilter ? { blogCategoryId: { in: categoryFilter } } : {}),
+      },
+      orderBy: { updatedAt: "desc" },
+      take: resolvedLimit,
+      select: {
+        id: true,
+        title: true,
+        slug: true,
+        updatedAt: true,
+        blogCategory: { select: { id: true, name: true } },
+      },
+    });
+
+    return posts.map((post) => ({
+      id: post.id,
+      title: post.title,
+      href: `/${post.slug}`,
+      date: post.updatedAt,
+      tag: post.blogCategory?.name ?? null,
+    }));
   }
 
   async updateTheme(input: UpdateThemeInput) {
